@@ -56,7 +56,7 @@ const getNextRmNumber = async (): Promise<string> => {
       const counterDoc = await transaction.get(counterRef);
       
       // Nomor awal jika dokumen belum ada
-      const startNumber = 18070; 
+      const startNumber = 18073; 
       
       let nextNumber: number;
       if (!counterDoc.exists()) {
