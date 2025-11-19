@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+    // Izinkan siapa saja (bahkan yang tidak login) untuk membaca
+    // aturan ini adalah untuk aplikasi publik.
+    // Untuk aplikasi klinik, kita harus menguncinya.
+    
+    // --- ATURAN AMAN (Default) ---
+    
+    // Default: Jangan izinkan siapapun membaca/menulis apapun
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Izinkan staf yang terautentikasi (login) untuk
+    // melakukan semua operasi (CRUD) pada koleksi 'patients'.
+    match /patients/{patientId} {
+      allow read, write, create, delete: if request.auth != null;
+    }
+    
+    // Izinkan staf yang terautentikasi untuk membaca dan menulis
+    // dokumen 'patientCounter' yang digunakan untuk membuat No. RM.
+    match /metadata/patientCounter {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
