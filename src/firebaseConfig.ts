@@ -1,10 +1,11 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { 
-  getFirestore, 
-  doc, 
-  runTransaction, 
-  Timestamp 
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  runTransaction,
+  Timestamp
 } from "firebase/firestore";
 
 // --- TAMBAHAN DEBUGGING TERAKHIR ---
@@ -33,7 +34,7 @@ if (!firebaseConfig.apiKey) {
   console.error("PASTIKAN NAMA FILE ADALAH '.env' (bukan .env.txt atau .env.example)");
   console.error("PASTIKAN LOKASI FILE .env ADA DI FOLDER UTAMA (di samping package.json)");
   console.error("PASTIKAN ANDA SUDAH RESTART SERVER (Ctrl+C, lalu npm run dev)");
-  
+
   // Melempar error agar aplikasi berhenti dan Anda melihat pesan ini.
   throw new Error("Koneksi Firebase gagal: VITE_FIREBASE_API_KEY tidak ditemukan. Cek console untuk detail.");
 }
@@ -54,10 +55,10 @@ const getNextRmNumber = async (): Promise<string> => {
   try {
     const newRmNumber = await runTransaction(db, async (transaction) => {
       const counterDoc = await transaction.get(counterRef);
-      
+
       // Nomor awal jika dokumen belum ada
-      const startNumber = 18073; 
-      
+      const startNumber = 18073;
+
       let nextNumber: number;
       if (!counterDoc.exists()) {
         nextNumber = startNumber;
@@ -67,7 +68,7 @@ const getNextRmNumber = async (): Promise<string> => {
       }
 
       // Set nomor baru di dokumen counter
-      transaction.set(counterRef, { 
+      transaction.set(counterRef, {
         currentNumber: nextNumber,
         updatedAt: Timestamp.now()
       }, { merge: true });
@@ -82,4 +83,26 @@ const getNextRmNumber = async (): Promise<string> => {
   }
 };
 
-export { app, auth, db, getNextRmNumber, Timestamp };
+const previewNextRmNumber = async (): Promise<string> => {
+  const counterRef = doc(db, "metadata", "patientCounter");
+
+  try {
+    const counterDoc = await getDoc(counterRef);
+    const startNumber = 18073;
+    let nextNumber: number;
+
+    if (!counterDoc.exists()) {
+      nextNumber = startNumber;
+    } else {
+      const currentNumber = counterDoc.data()?.currentNumber || (startNumber - 1);
+      nextNumber = currentNumber + 1;
+    }
+
+    return String(nextNumber);
+  } catch (error) {
+    console.error("Gagal preview nomor RM:", error);
+    return "Unknown";
+  }
+};
+
+export { app, auth, db, getNextRmNumber, previewNextRmNumber, Timestamp };

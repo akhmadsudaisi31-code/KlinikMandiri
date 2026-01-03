@@ -1,12 +1,13 @@
-import React, { 
-  createContext, 
-  useContext, 
-  useEffect, 
-  useState 
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState
 } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebaseConfig';
 import Header from './components/Header';
+import BottomNav from './components/BottomNav';
 
 // Tipe untuk AuthContext
 interface AuthContextType {
@@ -56,9 +57,15 @@ function App({ children }: AppProps) {
     <AuthContext.Provider value={value}>
       {/* Tampilkan Header jika user sudah login */}
       {user && <Header />}
-      <main className="p-4 md:p-8 max-w-6xl mx-auto">
+      <main className="p-4 md:p-8 max-w-6xl mx-auto pb-24 md:pb-8">
         {children}
+        {user && (
+          <footer className="mt-12 text-center text-sm text-gray-400 dark:text-gray-600 pb-4">
+            &copy; {new Date().getFullYear()} AKHMAD SUDAISI. All rights reserved.
+          </footer>
+        )}
       </main>
+      {user && <BottomNav />}
     </AuthContext.Provider>
   );
 }

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../App';
 import toast from 'react-hot-toast';
 
@@ -37,9 +37,9 @@ function Login() {
     <div className="min-h-screen bg-surface dark:bg-dark-bg flex flex-col justify-center py-12 sm:px-6 lg:px-8 transition-colors duration-300">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="mx-auto h-12 w-12 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-lg mb-4">
-           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
           RM SatSet
@@ -94,6 +94,14 @@ function Login() {
               </div>
             )}
 
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                <Link to="/lupa-password" className="font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400">
+                  Lupa password?
+                </Link>
+              </div>
+            </div>
+
             <div>
               <button
                 type="submit"
@@ -106,7 +114,7 @@ function Login() {
           </form>
         </div>
         <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
-          &copy; 2025 Klinik Pratama. All rights reserved.
+          &copy; 2026 AKHMAD SUDAISI. All rights reserved.
         </p>
       </div>
     </div>
