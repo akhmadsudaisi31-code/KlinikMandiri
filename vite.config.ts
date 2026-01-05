@@ -13,8 +13,8 @@ export default defineConfig({
         name: 'RM SatSet',
         short_name: 'RM SatSet',
         description: 'Aplikasi Rekam Medis SatSet',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#10b981',
+        background_color: '#10b981',
         display: 'standalone',
         start_url: '/',
         icons: [
