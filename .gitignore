@@ -70,7 +70,8 @@ typings/
 
 # gatsby files
 .cache/
-public
+# public - COMMENTED OUT to allow PWA icons
+# public
 
 # vuepress build output
 .vuepress/dist
