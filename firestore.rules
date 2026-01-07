@@ -2,28 +2,53 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // Izinkan siapa saja (bahkan yang tidak login) untuk membaca
-    // aturan ini adalah untuk aplikasi publik.
-    // Untuk aplikasi klinik, kita harus menguncinya.
     
-    // --- ATURAN AMAN (Default) ---
-    
-    // Default: Jangan izinkan siapapun membaca/menulis apapun
+    // Default: Block all access
     match /{document=**} {
       allow read, write: if false;
     }
     
-    // Izinkan staf yang terautentikasi (login) untuk
-    // melakukan semua operasi (CRUD) pada koleksi 'patients'.
-    match /patients/{patientId} {
-      allow read, write, create, delete: if request.auth != null;
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
     }
     
-    // Izinkan staf yang terautentikasi untuk membaca dan menulis
-    // dokumen 'patientCounter' yang digunakan untuk membuat No. RM.
+    // Patients collection - Full CRUD for authenticated users
+    match /patients/{patientId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+    
+    // Patient counter metadata - For generating RM numbers
     match /metadata/patientCounter {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Medicines collection - Full CRUD for authenticated users
+    match /medicines/{medicineId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+    
+    // Examinations collection - Full CRUD for authenticated users
+    match /examinations/{examinationId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    // Visits collection - Full CRUD for authenticated users
+    match /visits/{visitId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
     }
   }
 }

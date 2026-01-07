@@ -25,24 +25,24 @@ function Header() {
   };
 
   const isActive = (path: string) => {
-    return location.pathname === path 
-      ? "text-primary-700 bg-primary-50 font-semibold dark:bg-primary-900/30 dark:text-primary-400" 
+    return location.pathname === path
+      ? "text-primary-700 bg-primary-50 font-semibold dark:bg-primary-900/30 dark:text-primary-400"
       : "text-gray-600 hover:text-primary-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-primary-400 transition-colors";
   };
 
   return (
-    <header className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 transition-colors duration-300">
-      <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="fixed w-full top-0 z-50 transition-all duration-300 px-4 pt-3">
+      <nav className="glass w-full mx-auto px-4 sm:px-6 lg:px-8 rounded-2xl shadow-sm">
         <div className="flex justify-between h-16">
           <div className="flex items-center gap-8">
             {/* Logo Area */}
             <Link to="/" className="flex items-center gap-2 group">
-              <div className="bg-gradient-to-br from-primary-500 to-primary-700 text-white p-2 rounded-xl shadow-lg shadow-primary-200 dark:shadow-none group-hover:shadow-primary-300 transition-all transform group-hover:scale-105">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+              <div className="bg-gradient-to-br from-primary-500 to-primary-600 text-white p-2 rounded-xl shadow-glow group-hover:shadow-lg group-hover:shadow-primary-500/40 transition-all transform group-hover:scale-105 duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
               </div>
-              <span className="text-xl font-bold text-gray-800 dark:text-white tracking-tight group-hover:text-primary-700 dark:group-hover:text-primary-400 transition-colors">
+              <span className="text-xl font-bold text-gray-800 dark:text-white tracking-tight group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors font-sans">
                 RM <span className="text-primary-600 dark:text-primary-500">SatSet</span>
               </span>
             </Link>
@@ -53,13 +53,22 @@ function Header() {
                 <Link to="/" className={`px-4 py-2 rounded-lg transition-all ${isActive('/')}`}>
                   Dashboard
                 </Link>
+                <Link to="/pendaftaran" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pendaftaran')}`}>
+                  Pendaftaran
+                </Link>
+                <Link to="/pemeriksaan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pemeriksaan')}`}>
+                  Pemeriksaan
+                </Link>
+                <Link to="/obat" className={`px-4 py-2 rounded-lg transition-all ${isActive('/obat')}`}>
+                  Obat
+                </Link>
                 <Link to="/laporan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/laporan')}`}>
                   Laporan
                 </Link>
               </div>
             )}
           </div>
-          
+
           {user && (
             <div className="flex items-center gap-4">
               {/* Theme Toggle Button */}
@@ -90,7 +99,7 @@ function Header() {
               </div>
 
               {/* Mobile Menu Button */}
-              <button 
+              <button
                 className="md:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               >
@@ -104,7 +113,7 @@ function Header() {
               </button>
 
               <div className="h-8 w-px bg-gray-200 dark:bg-gray-700 hidden md:block"></div>
-              
+
               {/* Logout Button (Desktop) */}
               <button
                 onClick={handleLogout}
@@ -122,28 +131,49 @@ function Header() {
 
       {/* Mobile Menu Dropdown */}
       {user && isMobileMenuOpen && (
-        <div className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shadow-lg animate-fade-in-down">
+        <div className="md:hidden fixed inset-x-0 top-20 mx-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-100 dark:border-gray-800 shadow-2xl rounded-2xl animate-fade-in-down z-[60]">
           <div className="px-4 pt-2 pb-4 space-y-1">
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               onClick={() => setIsMobileMenuOpen(false)}
               className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
               Dashboard
             </Link>
-            <Link 
-              to="/laporan" 
+            <Link
+              to="/pendaftaran"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pendaftaran' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              Pendaftaran
+            </Link>
+            <Link
+              to="/pemeriksaan"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pemeriksaan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              Pemeriksaan
+            </Link>
+            <Link
+              to="/obat"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/obat' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              Obat
+            </Link>
+            <Link
+              to="/laporan"
               onClick={() => setIsMobileMenuOpen(false)}
               className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/laporan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
               Laporan
             </Link>
             <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
-               <div className="px-3 py-2">
-                  <span className="block text-xs text-gray-500 dark:text-gray-500 font-bold uppercase">Login sebagai</span>
-                  <span className="block text-sm font-medium text-gray-900 dark:text-white">{user.email}</span>
-               </div>
-               <button
+              <div className="px-3 py-2">
+                <span className="block text-xs text-gray-500 dark:text-gray-500 font-bold uppercase">Login sebagai</span>
+                <span className="block text-sm font-medium text-gray-900 dark:text-white">{user.email}</span>
+              </div>
+              <button
                 onClick={() => {
                   handleLogout();
                   setIsMobileMenuOpen(false);

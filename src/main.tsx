@@ -7,11 +7,14 @@ import './index.css'
 import App from './App'
 import Login from './pages/Login'
 import ForgotPassword from './pages/ForgotPassword'
+import Dashboard from './pages/Dashboard'
 import PatientList from './pages/PatientList'
-
-
 import PatientForm from './pages/PatientForm'
 import PatientDetail from './pages/PatientDetail'
+import MedicineList from './pages/MedicineList'
+import MedicineForm from './pages/MedicineForm'
+import ExaminationList from './pages/ExaminationList'
+import ExaminationForm from './pages/ExaminationForm'
 import Reports from './pages/Reports'
 import ProtectedRoute from './components/ProtectedRoute'
 import NotFound from './pages/NotFound'
@@ -32,13 +35,22 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               path="/"
               element={
                 <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/pendaftaran"
+              element={
+                <ProtectedRoute>
                   <PatientList />
                 </ProtectedRoute>
               }
             />
 
             <Route
-              path="/pasien/baru"
+              path="/pendaftaran/baru"
               element={
                 <ProtectedRoute>
                   <PatientForm />
@@ -60,6 +72,51 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               element={
                 <ProtectedRoute>
                   <PatientDetail />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/obat"
+              element={
+                <ProtectedRoute>
+                  <MedicineList />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/obat/baru"
+              element={
+                <ProtectedRoute>
+                  <MedicineForm />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/obat/edit/:id"
+              element={
+                <ProtectedRoute>
+                  <MedicineForm />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/pemeriksaan"
+              element={
+                <ProtectedRoute>
+                  <ExaminationList />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/pemeriksaan/:patientId"
+              element={
+                <ProtectedRoute>
+                  <ExaminationForm />
                 </ProtectedRoute>
               }
             />

@@ -57,7 +57,7 @@ function App({ children }: AppProps) {
     <AuthContext.Provider value={value}>
       {/* Tampilkan Header jika user sudah login */}
       {user && <Header />}
-      <main className="p-4 md:p-8 max-w-6xl mx-auto pb-24 md:pb-8">
+      <main className="p-4 md:p-8 pt-24 md:pt-28 w-full mx-auto pb-4 md:pb-6 min-h-screen flex flex-col justify-between">
         {children}
         {user && (
           <footer className="mt-12 text-center text-sm text-gray-400 dark:text-gray-600 pb-4">

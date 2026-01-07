@@ -11,7 +11,7 @@ import {
   addDoc,
   collection
 } from 'firebase/firestore';
-import { PatientFormData, GENDERS, CATEGORIES, Patient } from '../types';
+import { PatientFormData, GENDERS, CATEGORIES, POLI_OPTIONS, Patient } from '../types';
 import toast from 'react-hot-toast';
 
 const schema = z.object({
@@ -23,6 +23,7 @@ const schema = z.object({
   dob: z.string().optional().nullable(),
   ageYears: z.string().optional(),
   ageMonths: z.string().optional(),
+  poli: z.enum(POLI_OPTIONS, { required_error: 'Poli wajib diisi' }),
 }).refine(data => data.ageYears || data.ageMonths || data.dob, {
   message: 'Isi Umur (Tahun/Bulan) atau Tanggal Lahir',
   path: ['ageYears'],
@@ -58,6 +59,7 @@ function PatientForm() {
       ageYears: '',
       ageMonths: '',
       manualRm: '',
+      poli: 'Umum' as const,
     }
   });
 
@@ -104,6 +106,7 @@ function PatientForm() {
             setValue('dob', data.dob || '');
             setValue('ageYears', data.ageYears ? String(data.ageYears) : '');
             setValue('ageMonths', data.ageMonths ? String(data.ageMonths) : '');
+            setValue('poli', data.poli || 'Umum');
           } else {
             toast.error('Data pasien tidak ditemukan.');
             navigate('/');
@@ -167,6 +170,7 @@ function PatientForm() {
         ageYears,
         ageMonths,
         ageDisplay,
+        poli: data.poli,
         updatedAt: now,
         createdBy: currentUser.uid,
       };
@@ -325,6 +329,27 @@ function PatientForm() {
               placeholder="Jalan, RT/RW, Desa..."
             />
             {errors.address && <p className="mt-1 text-sm text-red-600">{errors.address.message}</p>}
+          </div>
+
+          {/* Poli */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Poli Tujuan</label>
+            <div className="relative">
+              <Controller
+                name="poli"
+                control={control}
+                render={({ field }) => (
+                  <select {...field} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
+                    {POLI_OPTIONS.map(poli => <option key={poli} value={poli}>{poli}</option>)}
+                  </select>
+                )}
+              />
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              </div>
+            </div>
+            {errors.poli && <p className="mt-1 text-sm text-red-600">{errors.poli.message}</p>}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-1">Pilih "Pemeriksaan" jika pasien akan langsung diperiksa</p>
           </div>
 
           {/* Umur & Tgl Lahir */}

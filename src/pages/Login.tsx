@@ -34,15 +34,15 @@ function Login() {
   if (user) return <Navigate to="/" replace />;
 
   return (
-    <div className="min-h-screen bg-surface dark:bg-dark-bg flex flex-col justify-center py-12 sm:px-6 lg:px-8 transition-colors duration-300">
+    <div className="min-h-screen flex flex-col justify-start sm:justify-center pt-24 sm:pt-0 sm:py-12 sm:px-6 lg:px-8 transition-colors duration-300">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="mx-auto h-12 w-12 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-lg mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
+        <div className="mx-auto h-12 w-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center text-white shadow-glow mb-4 transform hover:scale-110 transition-transform duration-300">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
         </div>
-        <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-          RM SatSet
+        <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight font-sans">
+          RM <span className="text-primary-600">SatSet</span>
         </h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-dark-muted">
           Sistem Rekam Medis Elektronik Terintegrasi
@@ -50,7 +50,7 @@ function Login() {
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white dark:bg-dark-surface py-8 px-4 shadow-soft dark:shadow-none sm:rounded-lg sm:px-10 border border-gray-100 dark:border-dark-border transition-colors duration-300">
+        <div className="glass-card py-8 px-4 sm:rounded-2xl sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">

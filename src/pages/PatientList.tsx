@@ -5,9 +5,10 @@ import {
   onSnapshot,
   orderBy,
   deleteDoc,
-  doc
+  doc,
+  setDoc
 } from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { db, Timestamp } from '../firebaseConfig';
 import { Patient } from '../types';
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -25,6 +26,7 @@ function PatientList() {
 
   useEffect(() => {
     setLoading(true);
+    // Query sorted by createdAt descending (newest first)
     const q = query(collection(db, "patients"), orderBy("createdAt", "desc"));
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -35,8 +37,14 @@ function PatientList() {
       setPatients(patientsData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching: ", error);
+      console.error("Error fetching patients: ", error);
       setLoading(false);
+      // Only show error for real permission issues
+      if (error.code === 'permission-denied') {
+        toast.error("Tidak memiliki izin untuk mengakses data pasien");
+      } else {
+        toast.error("Gagal memuat data pasien");
+      }
     });
 
     return () => unsubscribe();
@@ -50,6 +58,22 @@ function PatientList() {
       } catch (error) {
         console.error("Error deleting patient: ", error);
         toast.error("Gagal menghapus data pasien.");
+      }
+    }
+  };
+
+  const handleAddToPoli = async (patientId: string, patientName: string) => {
+    if (window.confirm(`Tambahkan ${patientName} ke poli Pemeriksaan?`)) {
+      try {
+        const patientRef = doc(db, "patients", patientId);
+        await setDoc(patientRef, {
+          poli: "Pemeriksaan",
+          updatedAt: Timestamp.now()
+        }, { merge: true });
+        toast.success(`${patientName} berhasil ditambahkan ke poli Pemeriksaan.`);
+      } catch (error) {
+        console.error("Error updating patient: ", error);
+        toast.error("Gagal menambahkan pasien ke poli.");
       }
     }
   };
@@ -76,11 +100,11 @@ function PatientList() {
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-primary-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-2xl border border-primary-100 dark:border-dark-border transition-colors">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Dashboard Pasien</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Pendaftaran Pasien</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kelola data pasien dan riwayat kunjungan klinik.</p>
         </div>
         <Link
-          to="/pasien/baru"
+          to="/pendaftaran/baru"
           className="w-full sm:w-auto inline-flex justify-center items-center px-5 py-3 border border-transparent rounded-xl shadow-lg shadow-primary-200 dark:shadow-none text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all"
         >
           <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -164,7 +188,7 @@ function PatientList() {
                               {patient.name}
                             </div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              Terdaftar: {patient.createdAt ? format(patient.createdAt.toDate(), 'dd MMM yyyy') : '-'}
+                              Terdaftar: {patient.createdAt ? format(patient.createdAt.toDate(), 'dd MMM yyyy', { locale: localeId }) : '-'}
                             </div>
                           </div>
                         </div>
@@ -184,6 +208,18 @@ function PatientList() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          className="p-2 rounded-full text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-gray-800 transition-all mr-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAddToPoli(patient.id, patient.name);
+                          }}
+                          title="Tambah ke Poli Pemeriksaan"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+                          </svg>
+                        </button>
                         <button
                           className="p-2 rounded-full text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-gray-800 transition-all mr-2"
                           onClick={(e) => {

@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import { Visit } from '../types';
+import { Examination } from '../types';
 import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear, getDate, getMonth, getHours } from 'date-fns';
+import { id as localeId } from 'date-fns/locale';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -30,18 +31,21 @@ ChartJS.register(
 );
 
 type ReportType = 'daily' | 'monthly' | 'yearly';
+type DataSource = 'examinations' | 'patients';
 const ITEMS_PER_PAGE = 20;
 
 function Reports() {
   const [reportType, setReportType] = useState<ReportType>('daily');
+  const [dataSource, setDataSource] = useState<DataSource>('examinations');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
-  const [visits, setVisits] = useState<Visit[]>([]);
+  const [examinations, setExaminations] = useState<Examination[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     fetchReport();
-  }, [reportType, selectedDate]);
+  }, [reportType, selectedDate, dataSource]);
 
   const fetchReport = async () => {
     setLoading(true);
@@ -63,16 +67,23 @@ function Reports() {
 
     try {
       const q = query(
-        collection(db, 'visits'),
-        where('date', '>=', Timestamp.fromDate(start)),
-        where('date', '<=', Timestamp.fromDate(end)),
-        orderBy('date', 'desc')
+        collection(db, dataSource),
+        where('createdAt', '>=', Timestamp.fromDate(start)),
+        where('createdAt', '<=', Timestamp.fromDate(end)),
+        orderBy('createdAt', 'desc')
       );
 
       const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
 
-      setVisits(data);
+      if (dataSource === 'examinations') {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Examination));
+        setExaminations(data);
+        setPatients([]);
+      } else {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setPatients(data);
+        setExaminations([]);
+      }
 
     } catch (error) {
       console.error("Error fetching report:", error);
@@ -83,12 +94,12 @@ function Reports() {
 
   // --- CHART LOGIC ---
   const chartData = useMemo(() => {
-    if (visits.length === 0) return null;
+    if (examinations.length === 0) return null;
 
     // 1. Diagnosa Distribution
     const diagnosisCounts: Record<string, number> = {};
-    visits.forEach(v => {
-      const d = v.diagnosis || 'Tanpa Diagnosa';
+    examinations.forEach(v => {
+      const d = v.diagnosa || 'Tanpa Diagnosa';
       diagnosisCounts[d] = (diagnosisCounts[d] || 0) + 1;
     });
 
@@ -135,8 +146,8 @@ function Reports() {
       trendLabels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
       const dayCounts = new Array(daysInMonth).fill(0);
 
-      visits.forEach(v => {
-        const day = getDate(v.date.toDate());
+      examinations.forEach(v => {
+        const day = getDate(v.createdAt.toDate());
         dayCounts[day - 1]++;
       });
       trendValues = dayCounts;
@@ -147,8 +158,8 @@ function Reports() {
       trendLabels = months;
       const monthCounts = new Array(12).fill(0);
 
-      visits.forEach(v => {
-        const m = getMonth(v.date.toDate());
+      examinations.forEach(v => {
+        const m = getMonth(v.createdAt.toDate());
         monthCounts[m]++;
       });
       trendValues = monthCounts;
@@ -156,8 +167,8 @@ function Reports() {
       // Daily: Group by Hour?
       trendLabels = ['00', '03', '06', '09', '12', '15', '18', '21']; // Simplified buckets
       const hourCounts = new Array(8).fill(0);
-      visits.forEach(v => {
-        const h = getHours(v.date.toDate());
+      examinations.forEach(v => {
+        const h = getHours(v.createdAt.toDate());
         const bucket = Math.floor(h / 3);
         if (bucket < 8) hourCounts[bucket]++;
       });
@@ -179,11 +190,12 @@ function Reports() {
     };
 
     return { diagnosisChart, trendChart };
-  }, [visits, reportType, selectedDate]);
+  }, [examinations, reportType, selectedDate]);
 
   // --- PAGINATION LOGIC ---
-  const totalPages = Math.ceil(visits.length / ITEMS_PER_PAGE);
-  const currentTableData = visits.slice(
+  const currentData = dataSource === 'examinations' ? examinations : patients;
+  const totalPages = Math.ceil(currentData.length / ITEMS_PER_PAGE);
+  const currentTableData = currentData.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
@@ -198,6 +210,20 @@ function Reports() {
       <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors">
         {/* Filter Controls */}
         <div className="flex flex-col md:flex-row gap-5 mb-8 items-start md:items-end border-b border-gray-50 dark:border-gray-700 pb-6">
+          <div className="w-full md:w-auto">
+            <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Jenis Data</label>
+            <div className="relative">
+              <select
+                value={dataSource}
+                onChange={(e) => setDataSource(e.target.value as DataSource)}
+                className="w-full md:w-56 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-white rounded-xl font-medium focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all appearance-none"
+              >
+                <option value="examinations">Laporan Pemeriksaan</option>
+                <option value="patients">Laporan Pendaftaran</option>
+              </select>
+            </div>
+          </div>
+
           <div className="w-full md:w-auto">
             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Jenis Laporan</label>
             <div className="relative">
@@ -229,14 +255,14 @@ function Reports() {
 
           <div className="flex-grow w-full md:w-auto md:text-right mt-2 md:mt-0">
             <div className="bg-gradient-to-br from-primary-500 to-primary-600 p-4 rounded-2xl text-white shadow-lg shadow-primary-200 dark:shadow-none flex md:inline-flex flex-col md:items-end min-w-[150px]">
-              <p className="text-xs font-bold uppercase opacity-80">Total Kunjungan</p>
-              <p className="text-3xl font-bold mt-1">{visits.length}</p>
+              <p className="text-xs font-bold uppercase opacity-80">{dataSource === 'examinations' ? 'Total Pemeriksaan' : 'Total Pendaftaran'}</p>
+              <p className="text-3xl font-bold mt-1">{currentData.length}</p>
             </div>
           </div>
         </div>
 
         {/* --- CHARTS SECTION --- */}
-        {!loading && chartData && visits.length > 0 && (
+        {!loading && chartData && dataSource === 'examinations' && examinations.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
             <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-2xl border border-gray-100 dark:border-gray-700">
               <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4 text-center">Tren Kunjungan</h3>
@@ -283,32 +309,60 @@ function Reports() {
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Waktu</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">No. RM</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pasien</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Diagnosa</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Terapi</th>
+                    {dataSource === 'examinations' ? (
+                      <>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Diagnosa</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Terapi</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Umur</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                  {visits.length === 0 ? (
+                  {currentData.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="text-center py-16 text-gray-500 dark:text-gray-400">
                         <div className="inline-block bg-gray-50 dark:bg-gray-800 p-3 rounded-full mb-2">
                           <svg className="w-6 h-6 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         </div>
-                        <p>Tidak ada data kunjungan pada periode ini.</p>
+                        <p>Tidak ada data pada periode ini.</p>
                       </td>
                     </tr>
-                  ) : (
-                    currentTableData.map((visit) => (
-                      <tr key={visit.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                  ) : dataSource === 'examinations' ? (
+                    currentTableData.map((examination: any) => (
+                      <tr key={examination.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {format(visit.date.toDate(), 'dd/MM/yyyy HH:mm')}
+                          {format(examination.createdAt.toDate(), 'dd/MM/yyyy HH:mm', { locale: localeId })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded font-mono text-xs border border-gray-200 dark:border-gray-600">{visit.patientRm}</span>
+                          <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded font-mono text-xs border border-gray-200 dark:border-gray-600">{examination.patientRm}</span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{visit.patientName}</td>
-                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{visit.diagnosis}</td>
-                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{visit.therapy}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{examination.patientName}</td>
+                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{examination.diagnosa || '-'}</td>
+                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
+                          {examination.medicines && examination.medicines.length > 0
+                            ? examination.medicines.map((m: any) => m.medicineName).join(', ')
+                            : '-'
+                          }
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    currentTableData.map((patient: any) => (
+                      <tr key={patient.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                          {format(patient.createdAt.toDate(), 'dd/MM/yyyy HH:mm', { locale: localeId })}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded font-mono text-xs border border-gray-200 dark:border-gray-600">{patient.rm}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{patient.name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{patient.ageDisplay}</td>
+                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{patient.address}</td>
                       </tr>
                     ))
                   )}
@@ -317,7 +371,7 @@ function Reports() {
             </div>
 
             {/* Pagination Controls */}
-            {visits.length > ITEMS_PER_PAGE && (
+            {examinations.length > ITEMS_PER_PAGE && (
               <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 sm:px-6 mt-4">
                 <div className="flex flex-1 justify-between sm:hidden">
                   <button
@@ -338,7 +392,7 @@ function Reports() {
                 <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm text-gray-700 dark:text-gray-300">
-                      Menampilkan <span className="font-medium">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> sampai <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, visits.length)}</span> dari <span className="font-medium">{visits.length}</span> hasil
+                      Menampilkan <span className="font-medium">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> sampai <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, examinations.length)}</span> dari <span className="font-medium">{examinations.length}</span> hasil
                     </p>
                   </div>
                   <div>

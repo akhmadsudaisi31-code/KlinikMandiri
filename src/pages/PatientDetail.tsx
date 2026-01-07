@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth, Timestamp } from '../firebaseConfig';
 import {
-  doc, getDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc
+  doc, getDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc, setDoc
 } from 'firebase/firestore';
-import { Patient, Visit } from '../types';
+import { Patient, Visit, Examination } from '../types';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -22,6 +22,7 @@ function PatientDetail() {
   const navigate = useNavigate();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [examinations, setExaminations] = useState<Examination[]>([]);
   const [loading, setLoading] = useState(true);
   const [showVisitForm, setShowVisitForm] = useState(false);
 
@@ -40,8 +41,14 @@ function PatientDetail() {
           toast.error("Pasien tidak ditemukan");
           navigate('/');
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error(e);
+        if (e.code === 'permission-denied') {
+          toast.error("Tidak memiliki izin untuk mengakses data pasien. Silakan login ulang.");
+          navigate('/login');
+        } else {
+          toast.error("Gagal memuat data pasien");
+        }
       }
     };
 
@@ -60,7 +67,29 @@ function PatientDetail() {
       } as Visit));
       setVisits(visitsData);
       setLoading(false);
+    }, (error) => {
+      console.error("Error in visits listener:", error);
+      setLoading(false);
     });
+
+    const qExams = query(
+      collection(db, 'examinations'),
+      where('patientId', '==', id),
+      orderBy('date', 'desc')
+    );
+
+    const unsubscribeExams = onSnapshot(qExams, (snapshot) => {
+      const examsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Examination));
+      setExaminations(examsData);
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeExams();
+    };
 
     return () => unsubscribe();
   }, [id, navigate]);
@@ -76,6 +105,24 @@ function PatientDetail() {
       } catch (error) {
         console.error("Gagal menghapus:", error);
         toast.error("Terjadi kesalahan saat menghapus data.");
+      }
+    }
+  };
+
+  const handleAddToPoli = async () => {
+    if (!patient) return;
+    if (window.confirm(`Tambahkan ${patient.name} ke antrian Poli Pemeriksaan?`)) {
+      try {
+        const patientRef = doc(db, "patients", patient.id);
+        await setDoc(patientRef, {
+          poli: "Pemeriksaan",
+          updatedAt: Timestamp.now()
+        }, { merge: true });
+        toast.success(`${patient.name} berhasil ditambahkan ke antrian Pemeriksaan.`);
+        navigate('/pemeriksaan');
+      } catch (error) {
+        console.error("Error updating patient: ", error);
+        toast.error("Gagal menambahkan pasien ke poli.");
       }
     }
   };
@@ -154,6 +201,16 @@ function PatientDetail() {
             </div>
           </div>
         </div>
+
+        <button
+          onClick={handleAddToPoli}
+          className="w-full py-3 mb-3 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-xl shadow-lg shadow-green-200 dark:shadow-none transition-all transform hover:-translate-y-0.5 flex justify-center items-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Kirim ke Poli Pemeriksaan
+        </button>
 
         <button onClick={() => navigate('/')} className="w-full py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-dark-surface hover:bg-gray-50 dark:hover:bg-gray-800 transition-all shadow-sm hover:shadow-md mb-3">
           &larr; Kembali ke Dashboard
@@ -246,7 +303,7 @@ function PatientDetail() {
 
         {/* TIMELINE KUNJUNGAN */}
         <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:ml-[8.75rem] md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-gray-200 dark:before:from-gray-700 before:via-gray-100 dark:before:via-gray-800 before:to-transparent z-0">
-          {visits.length === 0 ? (
+          {[...visits, ...examinations].length === 0 ? (
             <div className="text-center py-16 bg-white dark:bg-dark-surface rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 relative z-10">
               <div className="inline-block p-4 rounded-full bg-gray-50 dark:bg-gray-800 mb-3">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -254,46 +311,89 @@ function PatientDetail() {
               <p className="text-gray-500 dark:text-gray-400 font-medium">Belum ada riwayat kunjungan tercatat.</p>
             </div>
           ) : (
-            visits.map((visit) => (
-              <div key={visit.id} className="relative flex flex-col md:flex-row items-start group z-10">
-                {/* Tanggal (Desktop) */}
-                <div className="hidden md:block w-32 text-right pr-8 pt-2">
-                  <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{format(visit.date.toDate(), 'dd MMM', { locale: localeId })}</div>
-                  <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{format(visit.date.toDate(), 'yyyy', { locale: localeId })}</div>
-                  <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{format(visit.date.toDate(), 'HH:mm', { locale: localeId })}</div>
-                </div>
+            [...visits, ...examinations]
+              .sort((a, b) => b.date.seconds - a.date.seconds)
+              .map((item) => {
+                const isExamination = 'pemeriksaan' in item;
+                const diagnosis = isExamination ? (item as Examination).diagnosa : (item as Visit).diagnosis;
 
-                {/* Dot */}
-                <div className="absolute left-0 md:left-32 ml-3 md:ml-0 h-5 w-5 rounded-full border-4 border-white dark:border-dark-bg bg-primary-500 shadow-md group-hover:scale-125 transition-transform duration-300"></div>
-
-                {/* Card */}
-                <div className="ml-10 md:ml-8 w-full bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-dark-border shadow-soft dark:shadow-none hover:shadow-lg dark:hover:bg-gray-800 transition-all duration-300 relative top-[-0.5rem]">
-                  {/* Tanggal (Mobile) */}
-                  <div className="md:hidden flex items-center gap-2 mb-3 text-sm text-gray-500 pb-3 border-b border-gray-50 dark:border-gray-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                    <span className="font-bold text-gray-900 dark:text-white">{format(visit.date.toDate(), 'dd MMMM yyyy', { locale: localeId })}</span>
-                    <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs dark:text-gray-300">{format(visit.date.toDate(), 'HH:mm', { locale: localeId })}</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 gap-1">
-                      <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Diagnosa</span>
-                      <p className="text-gray-900 dark:text-gray-100 font-medium text-lg">{visit.diagnosis}</p>
+                return (
+                  <div key={item.id} className="relative flex flex-col md:flex-row items-start group z-10">
+                    {/* Tanggal (Desktop) */}
+                    <div className="hidden md:block w-32 text-right pr-8 pt-2">
+                      <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{format(item.date.toDate(), 'dd MMM', { locale: localeId })}</div>
+                      <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{format(item.date.toDate(), 'yyyy', { locale: localeId })}</div>
+                      <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{format(item.date.toDate(), 'HH:mm', { locale: localeId })}</div>
+                      {isExamination && <span className="block mt-1 text-[10px] font-bold text-purple-600 dark:text-purple-400">PEMERIKSAAN</span>}
                     </div>
-                    <div className="grid grid-cols-1 gap-1">
-                      <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Terapi / Tindakan</span>
-                      <p className="text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700">{visit.therapy}</p>
-                    </div>
-                    {visit.notes && (
-                      <div className="flex gap-2 items-start text-sm text-yellow-700 dark:text-yellow-300 bg-yellow-50/50 dark:bg-yellow-900/20 p-2 rounded-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                        <span>{visit.notes}</span>
+
+                    {/* Dot */}
+                    <div className={`absolute left-0 md:left-32 ml-3 md:ml-0 h-5 w-5 rounded-full border-4 border-white dark:border-dark-bg ${isExamination ? 'bg-purple-500' : 'bg-primary-500'} shadow-md group-hover:scale-125 transition-transform duration-300`}></div>
+
+                    {/* Card */}
+                    <div className="ml-10 md:ml-8 w-full bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-dark-border shadow-soft dark:shadow-none hover:shadow-lg dark:hover:bg-gray-800 transition-all duration-300 relative top-[-0.5rem]">
+                      {/* Tanggal (Mobile) */}
+                      <div className="md:hidden flex items-center gap-2 mb-3 text-sm text-gray-500 pb-3 border-b border-gray-50 dark:border-gray-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        <span className="font-bold text-gray-900 dark:text-white">{format(item.date.toDate(), 'dd MMMM yyyy', { locale: localeId })}</span>
+                        <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs dark:text-gray-300">{format(item.date.toDate(), 'HH:mm', { locale: localeId })}</span>
+                        {isExamination && <span className="ml-auto text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 rounded-full">PEMERIKSAAN</span>}
                       </div>
-                    )}
+
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 gap-1">
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Diagnosa</span>
+                          <p className="text-gray-900 dark:text-gray-100 font-medium text-lg">{diagnosis || '-'}</p>
+                        </div>
+
+                        {/* Tampilan Khusus Pemeriksaan */}
+                        {isExamination ? (
+                          <>
+                            {(item as Examination).keluhan && (
+                              <div className="grid grid-cols-1 gap-1">
+                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Keluhan</span>
+                                <p className="text-gray-700 dark:text-gray-300 italic">"{(item as Examination).keluhan}"</p>
+                              </div>
+                            )}
+                            {(item as Examination).pemeriksaan && (
+                              <div className="grid grid-cols-1 gap-1">
+                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Hasil Pemeriksaan</span>
+                                <p className="text-gray-700 dark:text-gray-300">{(item as Examination).pemeriksaan}</p>
+                              </div>
+                            )}
+                            {(item as Examination).medicines && (item as Examination).medicines.length > 0 && (
+                              <div className="grid grid-cols-1 gap-1">
+                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Obat</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {(item as Examination).medicines.map((med, idx) => (
+                                    <span key={idx} className="bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-2 py-1 rounded-lg text-sm border border-purple-100 dark:border-purple-800">
+                                      {med.medicineName} ({med.quantity} {med.unit})
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          // Tampilan Khusus Kunjungan (Visit)
+                          <>
+                            <div className="grid grid-cols-1 gap-1">
+                              <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Terapi / Tindakan</span>
+                              <p className="text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700">{(item as Visit).therapy || '-'}</p>
+                            </div>
+                            {(item as Visit).notes && (
+                              <div className="flex gap-2 items-start text-sm text-yellow-700 dark:text-yellow-300 bg-yellow-50/50 dark:bg-yellow-900/20 p-2 rounded-lg">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                                <span>{(item as Visit).notes}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))
+                );
+              })
           )}
         </div>
 
