@@ -32,7 +32,6 @@ export interface Medicine {
   id: string;
   name: string;
   unit: MedicineUnit;
-  stock: number;
   price: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;

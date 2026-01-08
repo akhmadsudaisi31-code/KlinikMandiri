@@ -87,7 +87,6 @@ function MedicineForm() {
             const medicineData = {
                 name: data.name,
                 unit: data.unit,
-                stock: 0,
                 price: 0,
                 updatedAt: now,
                 createdBy: currentUser.uid,

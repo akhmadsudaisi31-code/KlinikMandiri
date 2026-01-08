@@ -37,7 +37,10 @@ const ITEMS_PER_PAGE = 20;
 function Reports() {
   const [reportType, setReportType] = useState<ReportType>('daily');
   const [dataSource, setDataSource] = useState<DataSource>('examinations');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
+  // Initialize with WIB date (UTC+7)
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  });
   const [examinations, setExaminations] = useState<Examination[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,7 +53,9 @@ function Reports() {
   const fetchReport = async () => {
     setLoading(true);
     setCurrentPage(1); // Reset page on new fetch
-    const dateObj = new Date(selectedDate);
+
+    // Parse date as local time (WIB assumed for user)
+    const dateObj = new Date(selectedDate + 'T00:00:00');
 
     let start: Date, end: Date;
 

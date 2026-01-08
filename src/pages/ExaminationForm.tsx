@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { Patient, Medicine, MedicineItem } from '../types';
 import toast from 'react-hot-toast';
+import { MedicineSelectorModal } from '../components/MedicineSelectorModal';
 
 const schema = z.object({
     keluhan: z.string().optional(),
@@ -41,6 +42,7 @@ function ExaminationForm() {
     const [patientHistory, setPatientHistory] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingData, setIsFetchingData] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     const {
         register,
@@ -313,26 +315,26 @@ function ExaminationForm() {
                             Obat yang Diberikan
                         </h3>
 
-                        {/* Add Medicine Dropdown */}
+                        {/* Add Medicine Button (Mobile Friendly) */}
                         <div className="mb-4">
-                            <select
-                                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 appearance-none bg-white"
-                                onChange={(e) => {
-                                    if (e.target.value) {
-                                        handleAddMedicine(e.target.value);
-                                        e.target.value = '';
-                                    }
-                                }}
-                                defaultValue=""
+                            <button
+                                type="button"
+                                onClick={() => setIsModalOpen(true)}
+                                className="w-full py-3 px-4 border-2 border-dashed border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/10 rounded-xl text-purple-600 dark:text-purple-400 font-semibold flex items-center justify-center gap-2 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
                             >
-                                <option value="">-- Pilih Obat untuk Ditambahkan --</option>
-                                {medicines.map(medicine => (
-                                    <option key={medicine.id} value={medicine.id}>
-                                        {medicine.name}
-                                    </option>
-                                ))}
-                            </select>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Tambah Obat
+                            </button>
                         </div>
+
+                        <MedicineSelectorModal
+                            isOpen={isModalOpen}
+                            onClose={() => setIsModalOpen(false)}
+                            medicines={medicines}
+                            onSelect={handleAddMedicine}
+                        />
 
                         {/* Selected Medicines List */}
                         {selectedMedicines.length === 0 ? (
