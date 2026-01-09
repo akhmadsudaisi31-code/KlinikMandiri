@@ -38,6 +38,18 @@ export interface Medicine {
   createdBy: string;
 }
 
+// --- TIPE UNTUK NOTIFIKASI ---
+export interface Notification {
+  id: string;
+  type: 'NEW_PATIENT' | 'CALL_PATIENT';
+  patientId: string;
+  patientName: string;
+  message: string;
+  read: boolean;
+  createdAt: Timestamp;
+  toRole: 'pemeriksa' | 'pendaftar'; 
+}
+
 // --- TIPE UNTUK PEMERIKSAAN ---
 export interface Examination {
   id: string;

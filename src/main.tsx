@@ -133,7 +133,34 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="*" element={<NotFound />} />
           </Routes>
 
-          <Toaster position="bottom-center" />
+          <Toaster 
+            position="top-center" // Fallback
+            containerStyle={{
+              top: 0,
+              left: 0,
+              bottom: 0,
+              right: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none', // Allow clicking behind
+              zIndex: 99999, // Ensure on top
+            }}
+            toastOptions={{
+              className: '',
+              style: {
+                background: 'transparent',
+                boxShadow: 'none',
+                border: 'none',
+                padding: 0,
+                color: 'inherit',
+                maxWidth: '100%',
+                width: 'auto',
+                pointerEvents: 'auto',
+              },
+              duration: Infinity,
+            }}
+          />
         </App>
       </BrowserRouter>
     </ThemeProvider>

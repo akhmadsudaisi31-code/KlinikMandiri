@@ -6,7 +6,9 @@ import {
   orderBy,
   deleteDoc,
   doc,
-  setDoc
+  setDoc,
+  addDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db, Timestamp } from '../firebaseConfig';
 import { Patient } from '../types';
@@ -70,7 +72,24 @@ function PatientList() {
           poli: "Pemeriksaan",
           updatedAt: Timestamp.now()
         }, { merge: true });
-        toast.success(`${patientName} berhasil ditambahkan ke poli Pemeriksaan.`);
+
+        // Kirim Notifikasi ke Pemeriksa
+        try {
+          await addDoc(collection(db, "notifications"), {
+             type: 'NEW_PATIENT',
+             patientId: patientId,
+             patientName: patientName,
+             message: `Pasien: ${patientName} dikirim ke antrian pemeriksaan.`,
+             read: false,
+             createdAt: serverTimestamp(),
+             toRole: 'pemeriksa'
+          });
+        } catch (error) {
+          console.error("Gagal kirim notif:", error);
+        }
+
+        // toast.success removed as per request to avoid double notifications
+
       } catch (error) {
         console.error("Error updating patient: ", error);
         toast.error("Gagal menambahkan pasien ke poli.");

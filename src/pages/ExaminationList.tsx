@@ -5,9 +5,11 @@ import {
     onSnapshot,
     orderBy,
     where,
-    deleteDoc,
+    updateDoc,
+    addDoc,
     doc,
-    Timestamp
+    Timestamp,
+    serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { Patient } from '../types';
@@ -26,12 +28,13 @@ function ExaminationList() {
     const [currentPage, setCurrentPage] = useState(1);
     const navigate = useNavigate();
 
+    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
     useEffect(() => {
         setLoading(true);
-        // Query only patients with poli = "Pemeriksaan" AND created today
-        const today = new Date();
-        const start = startOfDay(today);
-        const end = endOfDay(today);
+        // Query only patients with poli = "Pemeriksaan" AND created on Selected Date
+        const start = startOfDay(selectedDate);
+        const end = endOfDay(selectedDate);
 
         const q = query(
             collection(db, "patients"),
@@ -58,11 +61,19 @@ function ExaminationList() {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [selectedDate]);
 
-    // Fetch examination status for all patients
+    // Fetch examination status for all patients (Selected Date)
     useEffect(() => {
-        const q = query(collection(db, "examinations"));
+        const start = startOfDay(selectedDate);
+        const end = endOfDay(selectedDate);
+
+        // Query examinations created on selected date
+        const q = query(
+            collection(db, "examinations"),
+            where("date", ">=", Timestamp.fromDate(start)),
+            where("date", "<=", Timestamp.fromDate(end))
+        );
 
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const status: Record<string, boolean> = {};
@@ -76,17 +87,36 @@ function ExaminationList() {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [selectedDate]);
 
-    const handleDelete = async (patientId: string, patientName: string) => {
-        if (window.confirm(`Apakah Anda yakin ingin menghapus data pasien ${patientName}?`)) {
+    const handleRemoveFromQueue = async (patientId: string, patientName: string) => {
+        if (window.confirm(`Hapus ${patientName} dari antrian pemeriksaan? (Data pasien tidak akan terhapus)`)) {
             try {
-                await deleteDoc(doc(db, "patients", patientId));
-                toast.success(`Data pasien ${patientName} berhasil dihapus.`);
+                await updateDoc(doc(db, "patients", patientId), {
+                    poli: "Umum" // Move it away from "Pemeriksaan"
+                });
             } catch (error) {
-                console.error("Error deleting patient: ", error);
-                toast.error("Gagal menghapus data pasien.");
+                console.error("Error removing from queue: ", error);
+                toast.error("Gagal menghapus dari antrian.");
             }
+        }
+    };
+
+    const handleCallPatient = async (patient: Patient) => {
+        try {
+            await addDoc(collection(db, "notifications"), {
+                type: 'CALL_PATIENT',
+                patientId: patient.id,
+                patientName: patient.name,
+                message: `Panggilan untuk Pasien: ${patient.name} (${patient.rm}) - MASUK KE RUANG PEMERIKSAAN`,
+                read: false,
+                createdAt: serverTimestamp(),
+                toRole: 'pendaftar'
+            });
+        } catch (error) {
+            console.error("Error calling patient: ", error);
+            // toast.error("Gagal mengirim notifikasi panggilan."); // Suppress error toast if we want to degrade gracefully, but here failure is bad.
+             toast.error("Gagal memanggil pasien (Masalah Izin/Koneksi).");
         }
     };
 
@@ -123,9 +153,9 @@ function ExaminationList() {
                 </div>
             </div>
 
-            {/* Search Section */}
-            <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors">
-                <div className="relative">
+            {/* Search and Filter Section */}
+            <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors flex flex-col md:flex-row gap-2">
+                <div className="relative flex-grow">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                         <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
@@ -141,6 +171,20 @@ function ExaminationList() {
                             setCurrentPage(1);
                         }}
                     />
+                </div>
+                
+                {/* Date Picker */}
+                <div className="md:w-auto w-full">
+                     <input 
+                        type="date" 
+                        value={format(selectedDate, 'yyyy-MM-dd')}
+                        onChange={(e) => {
+                            if (e.target.value) {
+                                setSelectedDate(new Date(e.target.value));
+                            }
+                        }}
+                        className="block w-full md:w-48 px-4 py-3.5 border-transparent rounded-xl leading-5 bg-gray-50 dark:bg-gray-800 focus:bg-white dark:focus:bg-gray-900 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent sm:text-sm transition-all shadow-sm"
+                     />
                 </div>
             </div>
 
@@ -228,6 +272,19 @@ function ExaminationList() {
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                 <button
+                                                    className="inline-flex items-center px-3 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 rounded-lg text-xs font-bold transition-all mr-2 shadow-sm border border-blue-200 dark:border-blue-800"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleCallPatient(patient);
+                                                    }}
+                                                    title="Panggil Pasien Masuk"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5 mr-1">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                                                    </svg>
+                                                    MASUK
+                                                </button>
+                                                <button
                                                     className="p-2 rounded-full text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-gray-800 transition-all mr-2"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -240,15 +297,27 @@ function ExaminationList() {
                                                     </svg>
                                                 </button>
                                                 <button
+                                                    className="p-2 rounded-full text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all mr-2"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigate(`/pasien/${patient.id}`);
+                                                    }}
+                                                    title="Edit Kunjungan / Pasien"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                                    </svg>
+                                                </button>
+                                                <button
                                                     className="p-2 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        handleDelete(patient.id, patient.name);
+                                                        handleRemoveFromQueue(patient.id, patient.name);
                                                     }}
-                                                    title="Hapus Pasien"
+                                                    title="Hapus dari Antrian"
                                                 >
                                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                                     </svg>
                                                 </button>
                                             </td>

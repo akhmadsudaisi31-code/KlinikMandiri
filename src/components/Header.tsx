@@ -6,12 +6,136 @@ import { useAuth } from '../App';
 import toast from 'react-hot-toast';
 import { useTheme } from '../context/ThemeContext'; // Import tema
 
+import { db } from '../firebaseConfig';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { Notification } from '../types';
+import { startNotificationLoop, stopNotificationLoop } from '../utils/audio';
+
 function Header() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { theme, toggleTheme } = useTheme(); // Hook tema
+  const { theme, toggleTheme } = useTheme();
+  
+  // Ref untuk melacak apakah ini snapshot pertama (data awal)
+  const isFirstRun = React.useRef(true);
+
+  // Listener Notifikasi Realtime
+  React.useEffect(() => {
+    if (!user) return;
+    
+    // Reset isFirstRun saat listener di-init ulang (misal user ganti)
+    isFirstRun.current = true;
+
+    // Query 10 notifikasi terakhir (tanpa filter waktu lokal untuk hindari masalah jam device)
+    const q = query(
+      collection(db, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      // Abaikan snapshot pertama (history) agar tidak muncul notif saat refresh
+      if (isFirstRun.current) {
+        isFirstRun.current = false;
+        return;
+      }
+      
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const notif = change.doc.data() as Notification;
+          
+          // Tampilkan notifikasi menggunakan Toast
+          // Kita bisa memfilter berdasarkan Role jika ada sistem role
+          // Saat ini tampilkan ke semua, tapi bedakan icon/bunyi
+          
+          // Play sound for relevant notifications
+          if (notif.type === 'CALL_PATIENT') {
+              startNotificationLoop('calling');
+          } else if (notif.type === 'NEW_PATIENT') {
+              startNotificationLoop('incoming');
+          }
+
+          if (notif.type === 'CALL_PATIENT') {
+             toast(
+               (t) => (
+                 <div className="flex flex-col items-center w-[calc(100vw-32px)] sm:w-96 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 animate-bounce-in">
+                    {/* Icon with Pulse */}
+                    <div className="relative mb-4">
+                        <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20 duration-1000"></div>
+                        <div className="relative bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-full text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-50 dark:ring-blue-900/20">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                          </svg>
+                        </div>
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="text-center mb-6 w-full">
+                      <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">Panggilan Pasien</h3>
+                      <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed px-1 font-medium">{notif.message}</p>
+                    </div>
+
+                    {/* Button */}
+                    <button 
+                        onClick={() => {
+                            stopNotificationLoop();
+                            toast.dismiss(t.id);
+                        }}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-blue-200 dark:shadow-none"
+                    >
+                        OK, SAYA MENGERTI
+                    </button>
+                 </div>
+               ),
+               { 
+                   duration: Infinity, 
+               }
+             );
+          } else if (notif.type === 'NEW_PATIENT') {
+             toast(
+               (t) => (
+                 <div className="flex flex-col items-center w-[calc(100vw-32px)] sm:w-96 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 animate-bounce-in">
+                    {/* Icon with Pulse */}
+                    <div className="relative mb-4">
+                        <div className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-20 duration-1000"></div>
+                        <div className="relative bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-full text-white shadow-lg shadow-green-500/30 ring-4 ring-green-50 dark:ring-green-900/20">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                          </svg>
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="text-center mb-6 w-full">
+                      <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">Pasien Baru</h3>
+                      <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed px-1 font-medium">{notif.message}</p>
+                    </div>
+
+                    {/* Button */}
+                    <button 
+                        onClick={() => {
+                            stopNotificationLoop();
+                            toast.dismiss(t.id);
+                        }}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-green-200 dark:shadow-none"
+                    >
+                        TERIMA
+                    </button>
+                 </div>
+               ),
+               { 
+                   duration: Infinity, 
+                }
+             );
+          }
+        }
+      });
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleLogout = async () => {
     try {

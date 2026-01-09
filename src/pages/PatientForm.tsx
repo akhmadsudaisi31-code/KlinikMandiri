@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, SubmitHandler, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -40,7 +40,7 @@ function PatientForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(isEditMode);
-  const [isAutoRm, setIsAutoRm] = useState(!isEditMode);
+  const [rmMode, setRmMode] = useState<'auto' | 'manual' | 'none'>(isEditMode ? 'manual' : 'auto');
   const [nextRmPreview, setNextRmPreview] = useState<string>('');
 
   const {
@@ -82,15 +82,15 @@ function PatientForm() {
   }, [dobValue, setValue]);
 
   useEffect(() => {
-    if (!isEditMode && isAutoRm) {
+    if (!isEditMode && rmMode === 'auto') {
       previewNextRmNumber().then(setNextRmPreview);
     }
-  }, [isEditMode, isAutoRm]);
+  }, [isEditMode, rmMode]);
 
   useEffect(() => {
     if (isEditMode && patientId) {
       setIsFetchingData(true);
-      setIsAutoRm(false);
+      setRmMode('manual'); // Default to manual/display for edit mode
 
       const fetchPatient = async () => {
         try {
@@ -145,7 +145,7 @@ function PatientForm() {
       return;
     }
 
-    if (!isAutoRm && !data.manualRm) {
+    if (rmMode === 'manual' && !data.manualRm) {
       toast.error("Nomor RM Wajib diisi jika mode Manual dipilih!");
       setIsLoading(false);
       return;
@@ -157,16 +157,24 @@ function PatientForm() {
     try {
       let finalRm = data.manualRm || '';
 
-      if (!isEditMode && isAutoRm) {
-        finalRm = await getNextRmNumber();
+      if (!isEditMode) {
+        if (rmMode === 'auto') {
+            finalRm = await getNextRmNumber();
+        } else if (rmMode === 'none') {
+             // Pastikan RM diset ke '-' jika mode None
+            finalRm = '-';
+        }
       }
+
+      // Fallback jika RM kosong di mode No RM
+      if (rmMode === 'none' && !finalRm) finalRm = '-';
 
       const commonData = {
         name: data.name,
         gender: data.gender,
         category: data.category,
         address: data.address,
-        dob: data.dob || null,
+        dob: data.dob ? data.dob : null,
         ageYears,
         ageMonths,
         ageDisplay,
@@ -182,7 +190,24 @@ function PatientForm() {
           ...commonData,
           rm: finalRm
         }, { merge: true });
-        toast.success(`Data pasien (RM: ${finalRm}) diperbarui.`);
+
+        // KIRIM NOTIFIKASI JIKA UPDATE KE POLI PEMERIKSAAN
+        if (data.poli === 'Pemeriksaan') {
+            try {
+                await addDoc(collection(db, 'notifications'), {
+                    type: 'NEW_PATIENT',
+                    patientId: patientId,
+                    patientName: data.name,
+                    message: `Update Pasien: ${data.name} masuk antrian pemeriksaan.`,
+                    read: false,
+                    createdAt: serverTimestamp(),
+                    toRole: 'pemeriksa'
+                });
+            } catch (notifError) {
+                console.error("Gagal mengirim notifikasi update:", notifError);
+            }
+        }
+
         navigate(`/pasien/${patientId}`);
       } else {
         // CREATE
@@ -192,7 +217,24 @@ function PatientForm() {
           createdAt: now,
         };
         const docRef = await addDoc(collection(db, 'patients'), patientData);
-        toast.success(`Pasien baru (RM: ${finalRm}) ditambahkan.`);
+        
+        // KIRIM NOTIFIKASI JIKA MASUK POLI PEMERIKSAAN
+        if (data.poli === 'Pemeriksaan') {
+            try {
+                await addDoc(collection(db, 'notifications'), {
+                    type: 'NEW_PATIENT',
+                    patientId: docRef.id,
+                    patientName: data.name,
+                    message: `Pasien Baru: ${data.name} masuk antrian pemeriksaan.`,
+                    read: false,
+                    createdAt: serverTimestamp(),
+                    toRole: 'pemeriksa'
+                });
+            } catch (notifError) {
+                console.error("Gagal mengirim notifikasi creation:", notifError);
+            }
+        }
+
         navigate(`/pasien/${docRef.id}`);
       }
 
@@ -221,36 +263,52 @@ function PatientForm() {
 
           {/* --- BAGIAN PENGATURAN NO RM --- */}
           <div className="bg-blue-50/50 dark:bg-blue-900/20 p-5 rounded-xl border border-blue-100 dark:border-blue-800">
-            <div className="flex justify-between items-center mb-3">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
               <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Nomor Rekam Medis (RM)</label>
 
               {!isEditMode && (
-                <div className="flex items-center gap-3 text-sm bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div className="flex p-1 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <button
+                    type="button"
+                    onClick={() => setRmMode('auto')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${rmMode === 'auto' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+                  >
+                    Otomatis
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setIsAutoRm(!isAutoRm);
-                      if (!isAutoRm) setValue('manualRm', '');
+                        setRmMode('manual');
+                        setValue('manualRm', '');
                     }}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isAutoRm ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${rmMode === 'manual' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
                   >
-                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isAutoRm ? 'translate-x-4' : 'translate-x-1'}`} />
+                    Manual
                   </button>
-                  <span className={`font-medium ${isAutoRm ? "text-primary-700 dark:text-primary-400" : "text-gray-600 dark:text-gray-400"}`}>
-                    {isAutoRm ? "Otomatis" : "Manual"}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                        setRmMode('none');
+                        setValue('manualRm', '');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${rmMode === 'none' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+                  >
+                    Tanpa RM
+                  </button>
                 </div>
               )}
             </div>
 
-            {isAutoRm ? (
+            {rmMode === 'auto' && (
               <div className="flex items-center gap-3">
                 <div className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 italic flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                   Akan dibuat otomatis ({nextRmPreview || '...'})
                 </div>
               </div>
-            ) : (
+            )}
+            
+            {rmMode === 'manual' && (
               <div>
                 <input
                   {...register('manualRm')}
@@ -261,6 +319,15 @@ function PatientForm() {
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
                   Masukkan nomor RM secara manual
                 </p>
+              </div>
+            )}
+
+            {rmMode === 'none' && (
+               <div className="flex items-center gap-3">
+                <div className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 italic flex items-center gap-2">
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                  Pasien akan didaftarkan tanpa Nomor RM
+                </div>
               </div>
             )}
           </div>

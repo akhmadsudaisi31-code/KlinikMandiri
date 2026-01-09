@@ -2,13 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth, Timestamp } from '../firebaseConfig';
 import {
-  doc, getDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc, setDoc
+  doc, getDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc, setDoc, serverTimestamp
 } from 'firebase/firestore';
 import { Patient, Visit, Examination } from '../types';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { formatRupiah, parseRupiah } from '../utils/format';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
+import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
 
 type VisitFormData = {
   diagnosis: string;
@@ -25,8 +27,12 @@ function PatientDetail() {
   const [examinations, setExaminations] = useState<Examination[]>([]);
   const [loading, setLoading] = useState(true);
   const [showVisitForm, setShowVisitForm] = useState(false);
+  
+  // Detail Modal
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<VisitFormData>();
+  const { register, handleSubmit, reset, control, formState: { isSubmitting } } = useForm<VisitFormData>();
 
   useEffect(() => {
     if (!id) return;
@@ -118,7 +124,22 @@ function PatientDetail() {
           poli: "Pemeriksaan",
           updatedAt: Timestamp.now()
         }, { merge: true });
-        toast.success(`${patient.name} berhasil ditambahkan ke antrian Pemeriksaan.`);
+
+        // Kirim Notifikasi ke Pemeriksa
+        try {
+          await addDoc(collection(db, "notifications"), {
+             type: 'NEW_PATIENT',
+             patientId: patient.id,
+             patientName: patient.name,
+             message: `Pasien: ${patient.name} dikirim ke antrian pemeriksaan.`,
+             read: false,
+             createdAt: serverTimestamp(),
+             toRole: 'pemeriksa'
+          });
+        } catch (error) {
+          console.error("Gagal kirim notif:", error);
+        }
+
         navigate('/pemeriksaan');
       } catch (error) {
         console.error("Error updating patient: ", error);
@@ -139,7 +160,7 @@ function PatientDetail() {
         diagnosis: data.diagnosis || '-',
         therapy: data.therapy || '-',
         notes: data.notes || '',
-        cost: Number(data.cost) || 0,
+        cost: typeof data.cost === 'string' ? parseRupiah(data.cost) : (Number(data.cost) || 0),
         createdBy: auth.currentUser.uid
       });
 
@@ -284,7 +305,23 @@ function PatientDetail() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Biaya (Rp)</label>
-                  <input type="number" {...register('cost')} className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all dark:text-white" placeholder="0" />
+                  <Controller
+                    control={control}
+                    name="cost"
+                    render={({ field: { onChange, value, ...rest } }) => (
+                      <input
+                        {...rest}
+                        type="text"
+                        value={value ? formatRupiah(Number(value)) : ''}
+                        onChange={(e) => {
+                          const numericValue = parseRupiah(e.target.value);
+                          onChange(numericValue);
+                        }}
+                        className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all dark:text-white"
+                        placeholder="Rp 0"
+                      />
+                    )}
+                  />
                 </div>
               </div>
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
@@ -331,7 +368,13 @@ function PatientDetail() {
                     <div className={`absolute left-0 md:left-32 ml-3 md:ml-0 h-5 w-5 rounded-full border-4 border-white dark:border-dark-bg ${isExamination ? 'bg-purple-500' : 'bg-primary-500'} shadow-md group-hover:scale-125 transition-transform duration-300`}></div>
 
                     {/* Card */}
-                    <div className="ml-10 md:ml-8 w-full bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-dark-border shadow-soft dark:shadow-none hover:shadow-lg dark:hover:bg-gray-800 transition-all duration-300 relative top-[-0.5rem]">
+                    <div 
+                        onClick={() => {
+                            setSelectedItem(item);
+                            setIsModalOpen(true);
+                        }}
+                        className="ml-10 md:ml-8 w-full bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-dark-border shadow-soft dark:shadow-none hover:shadow-lg dark:hover:bg-gray-800 transition-all duration-300 relative top-[-0.5rem] cursor-pointer"
+                    >
                       {/* Tanggal (Mobile) */}
                       <div className="md:hidden flex items-center gap-2 mb-3 text-sm text-gray-500 pb-3 border-b border-gray-50 dark:border-gray-700">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -398,6 +441,12 @@ function PatientDetail() {
         </div>
 
       </div>
+      
+      <ExaminationDetailModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        data={selectedItem}
+      />
     </div>
   );
 }

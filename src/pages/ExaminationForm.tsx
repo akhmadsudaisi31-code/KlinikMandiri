@@ -8,6 +8,8 @@ import {
     doc,
     getDoc,
     addDoc,
+    updateDoc,
+    deleteDoc,
     collection,
     query,
     onSnapshot,
@@ -17,6 +19,7 @@ import {
 import { Patient, Medicine, MedicineItem } from '../types';
 import toast from 'react-hot-toast';
 import { MedicineSelectorModal } from '../components/MedicineSelectorModal';
+import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
 
 const schema = z.object({
     keluhan: z.string().optional(),
@@ -43,10 +46,19 @@ function ExaminationForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingData, setIsFetchingData] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    
+    // Detail Modal State
+    const [selectedExam, setSelectedExam] = useState<any>(null);
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    
+    // State for Edit Mode
+    const [editingExamId, setEditingExamId] = useState<string | null>(null);
 
     const {
         register,
         handleSubmit,
+        setValue,
+        reset,
         formState: { errors, isSubmitting }
     } = useForm<ExaminationFormData>({
         resolver: zodResolver(schema),
@@ -156,6 +168,40 @@ function ExaminationForm() {
         ));
     };
 
+    const handleEdit = (exam: any) => {
+        setEditingExamId(exam.id);
+        setValue('keluhan', exam.keluhan || '');
+        setValue('pemeriksaan', exam.pemeriksaan || '');
+        setValue('diagnosa', exam.diagnosa || '');
+        setValue('biaya', exam.biaya ? String(exam.biaya) : '');
+        setSelectedMedicines(exam.medicines || []);
+        
+        window.scrollTo({ top: 300, behavior: 'smooth' });
+        toast('Masuk mode edit pemeriksaan.', { icon: '✏️', duration: 1000 });
+    };
+
+    const handleCancelEdit = () => {
+        setEditingExamId(null);
+        reset();
+        setSelectedMedicines([]);
+        toast('Batal edit.', { icon: '↩️', duration: 1000 });
+    };
+
+    const handleDelete = async (examId: string) => {
+        if (window.confirm("Apakah Anda yakin ingin menghapus riwayat pemeriksaan ini?")) {
+            try {
+                await deleteDoc(doc(db, "examinations", examId));
+                toast.success("Riwayat pemeriksaan berhasil dihapus");
+                if (editingExamId === examId) {
+                    handleCancelEdit();
+                }
+            } catch (error) {
+                console.error("Error deleting examination:", error);
+                toast.error("Gagal menghapus pemeriksaan");
+            }
+        }
+    };
+
     const onSubmit: SubmitHandler<ExaminationFormData> = async (data) => {
         setIsLoading(true);
         const currentUser = auth.currentUser;
@@ -178,23 +224,49 @@ function ExaminationForm() {
                 patientId: patient.id,
                 patientName: patient.name,
                 patientRm: patient.rm,
-                date: now,
-                createdAt: now,
-                createdBy: currentUser.uid,
+                // date: now, // Jangan update date jika edit? Atau update 'updatedAt'?
+                // CreatedAt jangan diubah jika edit
+                // CreatedBy jangan diubah
             };
 
-            // Only add fields if they have values
-            if (data.keluhan) examinationData.keluhan = data.keluhan;
-            if (data.pemeriksaan) examinationData.pemeriksaan = data.pemeriksaan;
-            if (data.diagnosa) examinationData.diagnosa = data.diagnosa;
-            if (selectedMedicines.length > 0) examinationData.medicines = selectedMedicines;
-            if (data.biaya && Number(data.biaya) > 0) {
-                examinationData.biaya = Number(data.biaya);
-            }
+            // Basic fields
+            examinationData.keluhan = data.keluhan || null;
+            examinationData.pemeriksaan = data.pemeriksaan || null;
+            examinationData.diagnosa = data.diagnosa || null;
+            examinationData.medicines = selectedMedicines;
+            examinationData.biaya = data.biaya ? Number(data.biaya) : 0;
+            examinationData.updatedAt = now;
+            examinationData.updatedBy = currentUser.uid;
 
-            await addDoc(collection(db, 'examinations'), examinationData);
-            toast.success(`Pemeriksaan untuk ${patient.name} berhasil disimpan.`);
-            navigate('/pemeriksaan');
+            if (editingExamId) {
+                // UPDATE EXISTING
+                const examRef = doc(db, 'examinations', editingExamId);
+                await updateDoc(examRef, examinationData);
+                toast.success(`Pemeriksaan berhasil diperbarui.`, { duration: 1000 });
+                handleCancelEdit(); // Reset form & exit edit mode
+            } else {
+                // CREATE NEW
+                examinationData.date = now;
+                examinationData.createdAt = now;
+                examinationData.createdBy = currentUser.uid;
+                
+                await addDoc(collection(db, 'examinations'), examinationData);
+                toast.success(`Pemeriksaan untuk ${patient.name} berhasil disimpan.`);
+                
+                // Reset form manually for create mode (or use common reset)
+                reset();
+                setSelectedMedicines([]);
+            }
+            // navigate('/pemeriksaan'); // Stay on page to allow more inputs or review? 
+            // Usually we stay or go back. The previous code navigated back.
+            // If editing history, maybe stay? If creating new, maybe go back?
+            // "on form pemeriksaan tambahkan tombol edit...". 
+            // If I edit history, I probably want to see it updated in the list above.
+            // Let's stay on the page for Edit, but for New... previously it navigated away.
+            // Let's navigate away for NEW, stay for EDIT.
+             if (!editingExamId) {
+                 navigate('/pemeriksaan'); 
+             }
         } catch (error) {
             console.error("Error saving examination:", error);
             toast.error('Gagal menyimpan data pemeriksaan. Cek koneksi atau izin.');
@@ -209,8 +281,10 @@ function ExaminationForm() {
     return (
         <div className="w-full mx-auto pb-20">
             {/* Patient Info Header */}
-            <div className="bg-gradient-to-r from-green-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-t-2xl border border-green-100 dark:border-dark-border border-b-0">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Form Pemeriksaan</h1>
+            <div className={`bg-gradient-to-r ${editingExamId ? 'from-yellow-50 border-yellow-100' : 'from-green-50 border-green-100'} to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-t-2xl border dark:border-dark-border border-b-0`}>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                    {editingExamId ? 'Edit Pemeriksaan (Mode Koreksi)' : 'Form Pemeriksaan'}
+                </h1>
                 <div className="mt-3 flex items-center gap-4 text-sm">
                     <div className="flex items-center gap-2">
                         <span className="text-gray-500 dark:text-gray-400">Pasien:</span>
@@ -225,6 +299,10 @@ function ExaminationForm() {
                         <span className="font-bold text-gray-900 dark:text-white">{patient.ageDisplay}</span>
                     </div>
                 </div>
+                <div className="mt-2 flex items-center gap-2 text-sm">
+                    <span className="text-gray-500 dark:text-gray-400">Alamat:</span>
+                    <span className="font-bold text-gray-900 dark:text-white uppercase">{patient.address}</span>
+                </div>
             </div>
 
             {/* Patient Visit History */}
@@ -238,18 +316,46 @@ function ExaminationForm() {
                     </h2>
                     <div className="space-y-3 max-h-60 overflow-y-auto">
                         {patientHistory.map((visit, index) => (
-                            <div key={visit.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-blue-200 dark:border-gray-700">
+                            <div 
+                                key={visit.id} 
+                                onClick={() => {
+                                    setSelectedExam(visit);
+                                    setIsDetailModalOpen(true);
+                                }}
+                                className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-blue-200 dark:border-gray-700 relative group cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                            >
                                 <div className="flex justify-between items-start mb-2">
                                     <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
                                         Kunjungan #{patientHistory.length - index}
                                     </span>
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                                        {visit.createdAt && new Date(visit.createdAt.toDate()).toLocaleDateString('id-ID', {
-                                            day: 'numeric',
-                                            month: 'short',
-                                            year: 'numeric'
-                                        })}
-                                    </span>
+                                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">
+                                            {visit.createdAt && new Date(visit.createdAt.toDate()).toLocaleDateString('id-ID', {
+                                                day: 'numeric',
+                                                month: 'short',
+                                                year: 'numeric'
+                                            })}
+                                        </span>
+                                        {/* Action Buttons */}
+                                        <button 
+                                            onClick={() => handleEdit(visit)}
+                                            className="p-1.5 text-yellow-600 hover:bg-yellow-100 rounded-md transition-colors"
+                                            title="Edit Kunjungan"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDelete(visit.id)}
+                                            className="p-1.5 text-red-600 hover:bg-red-100 rounded-md transition-colors"
+                                            title="Hapus Kunjungan"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                                 {visit.diagnosa && (
                                     <p className="text-sm text-gray-700 dark:text-gray-300 mb-1">
@@ -409,22 +515,28 @@ function ExaminationForm() {
                     <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-6 border-t border-gray-100 dark:border-gray-700">
                         <button
                             type="button"
-                            onClick={() => navigate('/pemeriksaan')}
+                            onClick={editingExamId ? handleCancelEdit : () => navigate('/pemeriksaan')}
                             className="w-full sm:w-auto px-6 py-3 font-bold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
-                            Batal
+                            {editingExamId ? 'Batal Edit' : 'Kembali'}
                         </button>
                         <button
                             type="submit"
                             disabled={isSubmitting || isLoading}
-                            className="w-full sm:w-auto px-8 py-3 font-bold text-white bg-green-600 rounded-xl hover:bg-green-700 shadow-lg shadow-green-200 dark:shadow-none hover:shadow-green-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5"
+                            className={`w-full sm:w-auto px-8 py-3 font-bold text-white rounded-xl shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5 ${editingExamId ? 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-200 focus:ring-yellow-500' : 'bg-green-600 hover:bg-green-700 shadow-green-200 focus:ring-green-500'}`}
                         >
-                            {isSubmitting || isLoading ? 'Menyimpan...' : 'SIMPAN PEMERIKSAAN'}
+                            {isSubmitting || isLoading ? 'Menyimpan...' : (editingExamId ? 'SIMPAN PERUBAHAN' : 'SIMPAN PEMERIKSAAN')}
                         </button>
                     </div>
 
                 </form>
             </div>
+            {/* Detail Modal */}
+            <ExaminationDetailModal 
+                isOpen={isDetailModalOpen} 
+                onClose={() => setIsDetailModalOpen(false)} 
+                data={selectedExam} 
+            />
         </div>
     );
 }

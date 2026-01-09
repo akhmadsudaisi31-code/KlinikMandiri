@@ -13,6 +13,7 @@
     "@capacitor/android": "^7.4.4",
     "@capacitor/cli": "^7.4.4",
     "@capacitor/core": "^7.4.4",
+    "@headlessui/react": "^2.2.9",
     "@hookform/resolvers": "^3.6.0",
     "chart.js": "^4.5.1",
     "date-fns": "^3.6.0",

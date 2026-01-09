@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { Examination } from '../types';
 import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear, getDate, getMonth, getHours } from 'date-fns';
+import { formatRupiah } from '../utils/format';
+import toast from 'react-hot-toast';
 import { id as localeId } from 'date-fns/locale';
 import {
   Chart as ChartJS,
@@ -31,7 +33,7 @@ ChartJS.register(
 );
 
 type ReportType = 'daily' | 'monthly' | 'yearly';
-type DataSource = 'examinations' | 'patients';
+type DataSource = 'examinations' | 'patients' | 'visits';
 const ITEMS_PER_PAGE = 20;
 
 function Reports() {
@@ -80,8 +82,21 @@ function Reports() {
 
       const snapshot = await getDocs(q);
 
-      if (dataSource === 'examinations') {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Examination));
+      if (dataSource === 'examinations' || dataSource === 'visits') {
+        const data = snapshot.docs.map(doc => {
+           const d = doc.data();
+           return { 
+               id: doc.id, 
+               ...d,
+               // Normalize fields for report consistency
+               diagnosa: d.diagnosa || d.diagnosis,
+               cost: d.cost || d.biaya,
+               medicines: d.medicines || [], // Visits might not have medicines array structured same way? PatientDetail uses 'therapy' string usually?
+               // PatientDetail saves 'therapy' string. Examination saves 'medicines' array.
+               // We might need to display 'therapy' in the table if medicines is empty.
+               therapy: d.therapy 
+           } as any;
+        });
         setExaminations(data);
         setPatients([]);
       } else {
@@ -94,6 +109,25 @@ function Reports() {
       console.error("Error fetching report:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data ini?')) return;
+
+    try {
+      await deleteDoc(doc(db, dataSource, id));
+      toast.success('Data berhasil dihapus');
+      
+      // Update local state
+      if (dataSource === 'examinations' || dataSource === 'visits') {
+        setExaminations(prev => prev.filter(item => item.id !== id));
+      } else {
+        setPatients(prev => prev.filter(item => item.id !== id));
+      }
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      toast.error('Gagal menghapus data');
     }
   };
 
@@ -223,7 +257,8 @@ function Reports() {
                 onChange={(e) => setDataSource(e.target.value as DataSource)}
                 className="w-full md:w-56 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-white rounded-xl font-medium focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all appearance-none"
               >
-                <option value="examinations">Laporan Pemeriksaan</option>
+                <option value="examinations">Laporan Pemeriksaan (Poli)</option>
+                <option value="visits">Laporan Kunjungan (Detail Pasien)</option>
                 <option value="patients">Laporan Pendaftaran</option>
               </select>
             </div>
@@ -263,6 +298,13 @@ function Reports() {
               <p className="text-xs font-bold uppercase opacity-80">{dataSource === 'examinations' ? 'Total Pemeriksaan' : 'Total Pendaftaran'}</p>
               <p className="text-3xl font-bold mt-1">{currentData.length}</p>
             </div>
+
+            {dataSource === 'examinations' && (
+              <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-2xl text-white shadow-lg shadow-green-200 dark:shadow-none flex md:inline-flex flex-col md:items-end min-w-[150px] ml-4 mt-2 md:mt-0">
+                <p className="text-xs font-bold uppercase opacity-80">Total Pendapatan</p>
+                <p className="text-xl font-bold mt-1">{formatRupiah(currentData.reduce((acc: number, curr: any) => acc + (Number(curr.cost) || 0), 0))}</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -318,11 +360,14 @@ function Reports() {
                       <>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Diagnosa</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Terapi</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Biaya</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aksi</th>
                       </>
                     ) : (
                       <>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Umur</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aksi</th>
                       </>
                     )}
                   </tr>
@@ -351,8 +396,22 @@ function Reports() {
                         <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
                           {examination.medicines && examination.medicines.length > 0
                             ? examination.medicines.map((m: any) => m.medicineName).join(', ')
-                            : '-'
+                            : (examination.therapy || '-')
                           }
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-white">
+                          {examination.cost ? formatRupiah(Number(examination.cost)) : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          <button
+                            onClick={() => handleDelete(examination.id)}
+                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                            title="Hapus"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -368,6 +427,17 @@ function Reports() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{patient.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{patient.ageDisplay}</td>
                         <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{patient.address}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          <button
+                            onClick={() => handleDelete(patient.id)}
+                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                            title="Hapus"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
