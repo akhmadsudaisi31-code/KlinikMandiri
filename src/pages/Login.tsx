@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
 import { useNavigate, Navigate, Link } from 'react-router-dom';
-import { useAuth } from '../App';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
 import toast from 'react-hot-toast';
 
 type LoginFormInputs = {
@@ -15,12 +14,13 @@ function Login() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormInputs>();
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { user, loading } = useAuth();
+  const { user, loading, login } = useAuth();
 
   const onSubmit: SubmitHandler<LoginFormInputs> = async (data) => {
     setError(null);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
+      const res = await api.post('/auth/login', { email: data.email, password: data.password });
+      login(res.token, res.user);
       toast.success('Selamat datang kembali!');
       navigate('/');
     } catch (err: any) {
@@ -112,9 +112,16 @@ function Login() {
               </button>
             </div>
           </form>
+
+          <div className="mt-6 text-center text-sm">
+             <span className="text-gray-600 dark:text-gray-400">Belum punya akun klinik? </span>
+             <Link to="/register" className="font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400">
+                Daftar di sini
+             </Link>
+          </div>
         </div>
         <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
-          &copy; 2026 AKHMAD SUDAISI. All rights reserved.
+          &copy; {new Date().getFullYear()} SaaS Klinik Pratama. All rights reserved.
         </p>
       </div>
     </div>

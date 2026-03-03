@@ -3,15 +3,9 @@ import { useForm, SubmitHandler, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, getNextRmNumber, previewNextRmNumber, Timestamp, auth } from '../firebaseConfig';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  addDoc,
-  collection
-} from 'firebase/firestore';
-import { PatientFormData, GENDERS, CATEGORIES, POLI_OPTIONS, Patient } from '../types';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
+import { PatientFormData, GENDERS, CATEGORIES, POLI_OPTIONS } from '../types';
 import toast from 'react-hot-toast';
 
 const schema = z.object({
@@ -42,6 +36,17 @@ function PatientForm() {
   const [isFetchingData, setIsFetchingData] = useState(isEditMode);
   const [rmMode, setRmMode] = useState<'auto' | 'manual' | 'none'>(isEditMode ? 'manual' : 'auto');
   const [nextRmPreview, setNextRmPreview] = useState<string>('');
+  const { user } = useAuth();
+
+  const previewNextRmNumber = async () => {
+      try {
+          const res = await api.get('/patients/next-rm');
+          return typeof res === 'string' ? res : (res?.rm || '-');
+      } catch {
+          return '-';
+      }
+  };
+  const getNextRmNumber = previewNextRmNumber;
 
   const {
     register,
@@ -94,10 +99,8 @@ function PatientForm() {
 
       const fetchPatient = async () => {
         try {
-          const docRef = doc(db, 'patients', patientId);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data() as Patient;
+          const data = await api.get(`/patients/${patientId}`);
+          if (data) {
             setValue('manualRm', data.rm);
             setValue('name', data.name);
             setValue('gender', data.gender);
@@ -138,8 +141,7 @@ function PatientForm() {
 
   const onSubmit: SubmitHandler<ExtendedPatientFormData> = async (data) => {
     setIsLoading(true);
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
+    if (!user) {
       toast.error('Anda harus login.');
       setIsLoading(false);
       return;
@@ -152,7 +154,7 @@ function PatientForm() {
     }
 
     const { ageYears, ageMonths, ageDisplay } = calculateAge(data.ageYears, data.ageMonths);
-    const now = Timestamp.now();
+    const now = new Date().toISOString();
 
     try {
       let finalRm = data.manualRm || '';
@@ -170,6 +172,7 @@ function PatientForm() {
       if (rmMode === 'none' && !finalRm) finalRm = '-';
 
       const commonData = {
+        clinicId: user.uid, // ADDED: SaaS Multi-tenancy
         name: data.name,
         gender: data.gender,
         category: data.category,
@@ -180,35 +183,33 @@ function PatientForm() {
         ageDisplay,
         poli: data.poli,
         updatedAt: now,
-        createdBy: currentUser.uid,
+        createdBy: user.uid,
       };
 
       if (isEditMode && patientId) {
         // UPDATE
-        const patientRef = doc(db, 'patients', patientId);
-        await setDoc(patientRef, {
+        await api.put(`/patients/${patientId}`, {
           ...commonData,
           rm: finalRm
-        }, { merge: true });
+        });
 
         // KIRIM NOTIFIKASI JIKA UPDATE KE POLI PEMERIKSAAN
         if (data.poli === 'Pemeriksaan') {
             try {
-                await addDoc(collection(db, 'notifications'), {
+                await api.post('/notifications', {
                     type: 'NEW_PATIENT',
                     patientId: patientId,
                     patientName: data.name,
                     message: `Update Pasien: ${data.name} masuk antrian pemeriksaan.`,
                     read: false,
-                    createdAt: serverTimestamp(),
-                    toRole: 'pemeriksa'
+                    createdAt: new Date().toISOString(),
+                    toRole: 'pemeriksa',
+                    clinicId: user.uid
                 });
             } catch (notifError) {
                 console.error("Gagal mengirim notifikasi update:", notifError);
             }
         }
-
-        navigate(`/pasien/${patientId}`);
       } else {
         // CREATE
         const patientData = {
@@ -216,28 +217,37 @@ function PatientForm() {
           ...commonData,
           createdAt: now,
         };
-        const docRef = await addDoc(collection(db, 'patients'), patientData);
+        const docRef = await api.post('/patients', patientData);
         
         // KIRIM NOTIFIKASI JIKA MASUK POLI PEMERIKSAAN
         if (data.poli === 'Pemeriksaan') {
             try {
-                await addDoc(collection(db, 'notifications'), {
+                await api.post('/notifications', {
                     type: 'NEW_PATIENT',
-                    patientId: docRef.id,
+                    patientId: docRef?.id || Date.now().toString(),
                     patientName: data.name,
                     message: `Pasien Baru: ${data.name} masuk antrian pemeriksaan.`,
                     read: false,
-                    createdAt: serverTimestamp(),
-                    toRole: 'pemeriksa'
+                    createdAt: new Date().toISOString(),
+                    toRole: 'pemeriksa',
+                    clinicId: user.uid
                 });
             } catch (notifError) {
                 console.error("Gagal mengirim notifikasi creation:", notifError);
             }
         }
-
-        navigate(`/pasien/${docRef.id}`);
+        
+        // Set ID for redirect logic below if needed
+        (window as any)._lastId = docRef?.id;
       }
 
+      // REDIRECT LOGIC
+      const targetId = isEditMode ? patientId : (window as any)._lastId;
+      if (data.poli === 'Pemeriksaan' && targetId) {
+          navigate(`/pemeriksaan/${targetId}`);
+      } else {
+          navigate('/pasien');
+      }
 
     } catch (error) {
       console.error("Error saving:", error);

@@ -1,17 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import {
-    collection,
-    query,
-    onSnapshot,
-    orderBy,
-    where,
-    updateDoc,
-    addDoc,
-    doc,
-    Timestamp,
-    serverTimestamp
-} from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { Patient } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfDay, endOfDay } from 'date-fns';
@@ -27,74 +16,69 @@ function ExaminationList() {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const navigate = useNavigate();
-
+    const { user } = useAuth();
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
     useEffect(() => {
         setLoading(true);
-        // Query only patients with poli = "Pemeriksaan" AND created on Selected Date
-        const start = startOfDay(selectedDate);
-        const end = endOfDay(selectedDate);
-
-        const q = query(
-            collection(db, "patients"),
-            where("poli", "==", "Pemeriksaan"),
-            where("updatedAt", ">=", Timestamp.fromDate(start)),
-            where("updatedAt", "<=", Timestamp.fromDate(end)),
-            orderBy("updatedAt", "desc")
-        );
-
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const patientsData: Patient[] = [];
-            querySnapshot.forEach((doc) => {
-                patientsData.push({ id: doc.id, ...doc.data() } as Patient);
-            });
-            setPatients(patientsData);
+        if (!user) {
             setLoading(false);
-        }, (error) => {
-            console.error("Error fetching patients: ", error);
-            setLoading(false);
-            // Only show error if it's a real permission/network error
-            if (error.code === 'permission-denied') {
-                toast.error("Tidak memiliki izin untuk mengakses data pasien");
-            }
-        });
+            return;
+        }
 
-        return () => unsubscribe();
-    }, [selectedDate]);
+        const fetchPatients = async () => {
+             try {
+                 const start = startOfDay(selectedDate).getTime();
+                 const end = endOfDay(selectedDate).getTime();
+                 const data = await api.get('/patients');
+                 const allPatients = Array.isArray(data) ? data : [];
+                 const filtered = allPatients.filter(p => {
+                      if (p.poli !== "Pemeriksaan") return false;
+                      if (!p.updatedAt) return true;
+                      const pTime = new Date(p.updatedAt).getTime();
+                      return pTime >= start && pTime <= end;
+                 });
+                 // Sort by updatedAt descending
+                 filtered.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+                 setPatients(filtered);
+             } catch (e) {
+                 console.error(e);
+                 toast.error("Gagal memuat data pasien");
+             } finally {
+                 setLoading(false);
+             }
+        };
+
+        fetchPatients();
+    }, [user, selectedDate]);
 
     // Fetch examination status for all patients (Selected Date)
     useEffect(() => {
-        const start = startOfDay(selectedDate);
-        const end = endOfDay(selectedDate);
+        if (!user) return;
+        const start = startOfDay(selectedDate).toISOString();
+        const end = endOfDay(selectedDate).toISOString();
 
-        // Query examinations created on selected date
-        const q = query(
-            collection(db, "examinations"),
-            where("date", ">=", Timestamp.fromDate(start)),
-            where("date", "<=", Timestamp.fromDate(end))
-        );
+        const fetchStatus = async () => {
+             try {
+                  const exams = await api.get(`/examinations?startDate=${start}&endDate=${end}`);
+                  const status: Record<string, boolean> = {};
+                  (exams || []).forEach((e: any) => {
+                       if (e.patientId) status[e.patientId] = true;
+                  });
+                  setExaminationStatus(status);
+             } catch (e) {
+                  console.error(e);
+             }
+        };
 
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const status: Record<string, boolean> = {};
-            querySnapshot.forEach((doc) => {
-                const data = doc.data();
-                if (data.patientId) {
-                    status[data.patientId] = true;
-                }
-            });
-            setExaminationStatus(status);
-        });
-
-        return () => unsubscribe();
-    }, [selectedDate]);
+        fetchStatus();
+    }, [user, selectedDate]);
 
     const handleRemoveFromQueue = async (patientId: string, patientName: string) => {
         if (window.confirm(`Hapus ${patientName} dari antrian pemeriksaan? (Data pasien tidak akan terhapus)`)) {
             try {
-                await updateDoc(doc(db, "patients", patientId), {
-                    poli: "Umum" // Move it away from "Pemeriksaan"
-                });
+                await api.put(`/patients/${patientId}`, { poli: "Umum" });
+                setPatients(prev => prev.filter(p => p.id !== patientId));
             } catch (error) {
                 console.error("Error removing from queue: ", error);
                 toast.error("Gagal menghapus dari antrian.");
@@ -104,18 +88,19 @@ function ExaminationList() {
 
     const handleCallPatient = async (patient: Patient) => {
         try {
-            await addDoc(collection(db, "notifications"), {
+            await api.post('/notifications', {
                 type: 'CALL_PATIENT',
                 patientId: patient.id,
                 patientName: patient.name,
                 message: `Panggilan untuk Pasien: ${patient.name} (${patient.rm}) - MASUK KE RUANG PEMERIKSAAN`,
                 read: false,
-                createdAt: serverTimestamp(),
-                toRole: 'pendaftar'
+                createdAt: new Date().toISOString(),
+                toRole: 'pendaftar',
+                clinicId: user?.uid
             });
+            toast.success("Pasien dipanggil.");
         } catch (error) {
             console.error("Error calling patient: ", error);
-            // toast.error("Gagal mengirim notifikasi panggilan."); // Suppress error toast if we want to degrade gracefully, but here failure is bad.
              toast.error("Gagal memanggil pasien (Masalah Izin/Koneksi).");
         }
     };
@@ -251,7 +236,7 @@ function ExaminationList() {
                                                             )}
                                                         </div>
                                                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                                            Masuk Poli: {patient.updatedAt ? format(patient.updatedAt.toDate(), 'dd MMM yyyy HH:mm', { locale: localeId }) : '-'}
+                                                            Masuk Poli: {patient.updatedAt ? format(new Date(patient.updatedAt), 'dd MMM yyyy HH:mm', { locale: localeId }) : '-'}
                                                         </div>
                                                     </div>
                                                 </div>

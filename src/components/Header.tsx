@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
-import { useAuth } from '../App';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import toast from 'react-hot-toast';
-import { useTheme } from '../context/ThemeContext'; // Import tema
-
-import { db } from '../firebaseConfig';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { Notification } from '../types';
 import { startNotificationLoop, stopNotificationLoop } from '../utils/audio';
 
 function Header() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -20,37 +16,30 @@ function Header() {
   
   // Ref untuk melacak apakah ini snapshot pertama (data awal)
   const isFirstRun = React.useRef(true);
+  const processedNotifs = React.useRef<Set<string>>(new Set());
 
-  // Listener Notifikasi Realtime
+  // Listener Notifikasi Realtime (Polling Fallback)
   React.useEffect(() => {
     if (!user) return;
     
-    // Reset isFirstRun saat listener di-init ulang (misal user ganti)
     isFirstRun.current = true;
+    processedNotifs.current.clear();
 
-    // Query 10 notifikasi terakhir (tanpa filter waktu lokal untuk hindari masalah jam device)
-    const q = query(
-      collection(db, 'notifications'),
-      orderBy('createdAt', 'desc'),
-      limit(10)
-    );
+    const fetchNotifications = async () => {
+      try {
+        const notifs = await api.get('/notifications');
+        if (isFirstRun.current) {
+          isFirstRun.current = false;
+          // Mark existing ones as processed so we don't toast historical data
+          notifs.forEach((n: any) => processedNotifs.current.add(n.id));
+          return;
+        }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Abaikan snapshot pertama (history) agar tidak muncul notif saat refresh
-      if (isFirstRun.current) {
-        isFirstRun.current = false;
-        return;
-      }
-      
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
-          const notif = change.doc.data() as Notification;
-          
-          // Tampilkan notifikasi menggunakan Toast
-          // Kita bisa memfilter berdasarkan Role jika ada sistem role
-          // Saat ini tampilkan ke semua, tapi bedakan icon/bunyi
-          
-          // Play sound for relevant notifications
+        // Simulasikan struktur notif yang dikembalikan
+        notifs.forEach((notif: Notification) => {
+          if (processedNotifs.current.has(notif.id)) return;
+          processedNotifs.current.add(notif.id);
+
           if (notif.type === 'CALL_PATIENT') {
               startNotificationLoop('calling');
           } else if (notif.type === 'NEW_PATIENT') {
@@ -79,8 +68,13 @@ function Header() {
 
                     {/* Button */}
                     <button 
-                        onClick={() => {
+                        onClick={async () => {
                             stopNotificationLoop();
+                            try {
+                                await api.put(`/notifications/${notif.id}/read`, {});
+                            } catch (e) {
+                                console.error("Gagal update read status:", e);
+                            }
                             toast.dismiss(t.id);
                         }}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-blue-200 dark:shadow-none"
@@ -90,7 +84,8 @@ function Header() {
                  </div>
                ),
                { 
-                   duration: Infinity, 
+                   duration: 10000, 
+                   id: notif.id
                }
              );
           } else if (notif.type === 'NEW_PATIENT') {
@@ -115,8 +110,13 @@ function Header() {
 
                     {/* Button */}
                     <button 
-                        onClick={() => {
+                        onClick={async () => {
                             stopNotificationLoop();
+                            try {
+                                await api.put(`/notifications/${notif.id}/read`, {});
+                            } catch (e) {
+                                console.error("Gagal update read status:", e);
+                            }
                             toast.dismiss(t.id);
                         }}
                         className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-green-200 dark:shadow-none"
@@ -126,20 +126,26 @@ function Header() {
                  </div>
                ),
                { 
-                   duration: Infinity, 
+                   duration: 10000, 
+                   id: notif.id
                 }
              );
           }
-        }
-      });
-    });
+        });
+      } catch (e) {
+        console.error("Gagal ambil notif:", e);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 15000); // Poll setiap 15 detik
+
+    return () => clearInterval(interval);
   }, [user]);
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      logout();
       toast.success('Logout berhasil.');
       navigate('/login');
     } catch (error) {
@@ -172,23 +178,31 @@ function Header() {
             </Link>
 
             {/* Desktop Navigation */}
-            {user && (
+            {user && (user.status === 'active' || user.isAdmin === 1) && (
               <div className="hidden md:flex gap-2 text-sm font-medium">
                 <Link to="/" className={`px-4 py-2 rounded-lg transition-all ${isActive('/')}`}>
                   Dashboard
                 </Link>
-                <Link to="/pendaftaran" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pendaftaran')}`}>
-                  Pendaftaran
-                </Link>
-                <Link to="/pemeriksaan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pemeriksaan')}`}>
-                  Pemeriksaan
-                </Link>
-                <Link to="/obat" className={`px-4 py-2 rounded-lg transition-all ${isActive('/obat')}`}>
-                  Obat
-                </Link>
-                <Link to="/laporan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/laporan')}`}>
-                  Laporan
-                </Link>
+                {user.isAdmin === 1 ? (
+                  <Link to="/admin" className={`px-4 py-2 rounded-lg transition-all ${isActive('/admin')}`}>
+                    Admin Panel
+                  </Link>
+                ) : (
+                  <>
+                    <Link to="/pendaftaran" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pendaftaran')}`}>
+                      Pendaftaran
+                    </Link>
+                    <Link to="/pemeriksaan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pemeriksaan')}`}>
+                      Pemeriksaan
+                    </Link>
+                    <Link to="/obat" className={`px-4 py-2 rounded-lg transition-all ${isActive('/obat')}`}>
+                      Obat
+                    </Link>
+                    <Link to="/laporan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/laporan')}`}>
+                      Laporan
+                    </Link>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -214,11 +228,13 @@ function Header() {
                 )}
               </button>
 
-              {/* User Info (Desktop) */}
+               {/* User Info (Desktop) */}
               <div className="hidden md:flex flex-col items-end">
-                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">Operator</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">
+                    {user.isAdmin === 1 ? 'System Admin' : 'Operator'}
+                </span>
                 <span className="text-sm text-gray-700 dark:text-gray-200 font-medium leading-none">
-                  {user.email?.split('@')[0]}
+                  {user.displayName || user.email?.split('@')[0]}
                 </span>
               </div>
 
@@ -254,7 +270,7 @@ function Header() {
       </nav>
 
       {/* Mobile Menu Dropdown */}
-      {user && isMobileMenuOpen && (
+      {user && isMobileMenuOpen && (user.status === 'active' || user.isAdmin === 1) && (
         <div className="md:hidden fixed inset-x-0 top-20 mx-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-100 dark:border-gray-800 shadow-2xl rounded-2xl animate-fade-in-down z-[60]">
           <div className="px-4 pt-2 pb-4 space-y-1">
             <Link
@@ -264,34 +280,47 @@ function Header() {
             >
               Dashboard
             </Link>
-            <Link
-              to="/pendaftaran"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pendaftaran' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-            >
-              Pendaftaran
-            </Link>
-            <Link
-              to="/pemeriksaan"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pemeriksaan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-            >
-              Pemeriksaan
-            </Link>
-            <Link
-              to="/obat"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/obat' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-            >
-              Obat
-            </Link>
-            <Link
-              to="/laporan"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/laporan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-            >
-              Laporan
-            </Link>
+            
+            {user.isAdmin === 1 ? (
+                <Link
+                to="/admin"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/admin' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
+                Admin Panel
+              </Link>
+            ) : (
+                <>
+                    <Link
+                    to="/pendaftaran"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pendaftaran' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                    >
+                    Pendaftaran
+                    </Link>
+                    <Link
+                    to="/pemeriksaan"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pemeriksaan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                    >
+                    Pemeriksaan
+                    </Link>
+                    <Link
+                    to="/obat"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/obat' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                    >
+                    Obat
+                    </Link>
+                    <Link
+                    to="/laporan"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/laporan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                    >
+                    Laporan
+                    </Link>
+                </>
+            )}
             <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
               <div className="px-3 py-2">
                 <span className="block text-xs text-gray-500 dark:text-gray-500 font-bold uppercase">Login sebagai</span>

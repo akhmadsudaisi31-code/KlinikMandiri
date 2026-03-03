@@ -1,16 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, SubmitHandler, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, Timestamp, auth } from '../firebaseConfig';
-import {
-    doc,
-    getDoc,
-    setDoc,
-    addDoc,
-    collection
-} from 'firebase/firestore';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { MEDICINE_UNITS, MedicineUnit } from '../types';
 import toast from 'react-hot-toast';
 
@@ -27,6 +21,7 @@ type MedicineFormData = {
 function MedicineForm() {
     const { id: medicineId } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const { user } = useAuth();
     const isEditMode = !!medicineId;
 
     const [isLoading, setIsLoading] = useState(false);
@@ -52,10 +47,8 @@ function MedicineForm() {
 
             const fetchMedicine = async () => {
                 try {
-                    const docRef = doc(db, 'medicines', medicineId);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
+                    const data = await api.get(`/medicines/${medicineId}`);
+                    if (data) {
                         setValue('name', data.name);
                         setValue('unit', data.unit);
                     } else {
@@ -74,28 +67,27 @@ function MedicineForm() {
 
     const onSubmit: SubmitHandler<MedicineFormData> = async (data) => {
         setIsLoading(true);
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
+        if (!user) {
             toast.error('Anda harus login.');
             setIsLoading(false);
             return;
         }
 
-        const now = Timestamp.now();
+        const now = new Date().toISOString();
 
         try {
             const medicineData = {
+                clinicId: user.uid,
                 name: data.name,
                 unit: data.unit,
                 price: 0,
                 updatedAt: now,
-                createdBy: currentUser.uid,
+                createdBy: user.uid,
             };
 
             if (isEditMode && medicineId) {
                 // UPDATE
-                const medicineRef = doc(db, 'medicines', medicineId);
-                await setDoc(medicineRef, medicineData, { merge: true });
+                await api.put(`/medicines/${medicineId}`, medicineData);
                 toast.success(`Data obat ${data.name} diperbarui.`);
                 navigate('/obat');
             } else {
@@ -104,7 +96,7 @@ function MedicineForm() {
                     ...medicineData,
                     createdAt: now,
                 };
-                await addDoc(collection(db, 'medicines'), newMedicineData);
+                await api.post('/medicines', newMedicineData);
                 toast.success(`Obat ${data.name} berhasil ditambahkan.`);
                 navigate('/obat');
             }

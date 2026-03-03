@@ -1,9 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { db, auth, Timestamp } from '../firebaseConfig';
-import {
-  doc, getDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc, setDoc, serverTimestamp
-} from 'firebase/firestore';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { Patient, Visit, Examination } from '../types';
 import { useForm, Controller } from 'react-hook-form';
 import toast from 'react-hot-toast';
@@ -22,6 +20,7 @@ type VisitFormData = {
 function PatientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [examinations, setExaminations] = useState<Examination[]>([]);
@@ -35,77 +34,35 @@ function PatientDetail() {
   const { register, handleSubmit, reset, control, formState: { isSubmitting } } = useForm<VisitFormData>();
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !user) return;
 
-    const fetchPatient = async () => {
+    const fetchData = async () => {
       try {
-        const docRef = doc(db, 'patients', id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
-        } else {
-          toast.error("Pasien tidak ditemukan");
-          navigate('/');
-        }
+        const p = await api.get(`/patients/${id}`);
+        setPatient(p);
+
+        const v = await api.get(`/visits?patientId=${id}`);
+        setVisits(v || []);
+
+        const e = await api.get(`/examinations?patientId=${id}`);
+        setExaminations(e || []);
       } catch (e: any) {
         console.error(e);
-        if (e.code === 'permission-denied') {
-          toast.error("Tidak memiliki izin untuk mengakses data pasien. Silakan login ulang.");
-          navigate('/login');
-        } else {
-          toast.error("Gagal memuat data pasien");
-        }
+        toast.error("Gagal memuat data");
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchPatient();
-
-    const q = query(
-      collection(db, 'visits'),
-      where('patientId', '==', id),
-      orderBy('date', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const visitsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Visit));
-      setVisits(visitsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error in visits listener:", error);
-      setLoading(false);
-    });
-
-    const qExams = query(
-      collection(db, 'examinations'),
-      where('patientId', '==', id),
-      orderBy('date', 'desc')
-    );
-
-    const unsubscribeExams = onSnapshot(qExams, (snapshot) => {
-      const examsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Examination));
-      setExaminations(examsData);
-    });
-
-    return () => {
-      unsubscribe();
-      unsubscribeExams();
-    };
-
-    return () => unsubscribe();
-  }, [id, navigate]);
+    fetchData();
+  }, [id, user]);
 
   const handleDelete = async () => {
-    if (!patient || !auth.currentUser) return;
+    if (!patient || !user) return;
 
     if (window.confirm(`PERINGATAN: Apakah Anda yakin ingin MENGHAPUS PERMANEN data pasien ${patient.name}? Data yang dihapus tidak dapat dikembalikan.`)) {
       try {
-        await deleteDoc(doc(db, "patients", patient.id));
+        await api.delete(`/patients/${patient.id}`);
         toast.success(`Data pasien ${patient.name} telah dihapus.`);
         navigate('/');
       } catch (error) {
@@ -116,25 +73,25 @@ function PatientDetail() {
   };
 
   const handleAddToPoli = async () => {
-    if (!patient) return;
+    if (!patient || !user) return;
     if (window.confirm(`Tambahkan ${patient.name} ke antrian Poli Pemeriksaan?`)) {
       try {
-        const patientRef = doc(db, "patients", patient.id);
-        await setDoc(patientRef, {
+        await api.put(`/patients/${patient.id}`, {
           poli: "Pemeriksaan",
-          updatedAt: Timestamp.now()
-        }, { merge: true });
+          updatedAt: new Date().toISOString()
+        });
 
         // Kirim Notifikasi ke Pemeriksa
         try {
-          await addDoc(collection(db, "notifications"), {
+          await api.post('/notifications', {
              type: 'NEW_PATIENT',
              patientId: patient.id,
              patientName: patient.name,
              message: `Pasien: ${patient.name} dikirim ke antrian pemeriksaan.`,
              read: false,
-             createdAt: serverTimestamp(),
-             toRole: 'pemeriksa'
+             createdAt: new Date().toISOString(),
+             toRole: 'pemeriksa',
+             clinicId: user.uid
           });
         } catch (error) {
           console.error("Gagal kirim notif:", error);
@@ -149,21 +106,25 @@ function PatientDetail() {
   };
 
   const onSaveVisit = async (data: VisitFormData) => {
-    if (!auth.currentUser || !patient) return;
+    if (!user || !patient) return;
 
     try {
-      await addDoc(collection(db, 'visits'), {
+      const newVisit = {
         patientId: patient.id,
         patientName: patient.name,
         patientRm: patient.rm,
-        date: Timestamp.now(),
+        date: new Date().toISOString(),
         diagnosis: data.diagnosis || '-',
         therapy: data.therapy || '-',
         notes: data.notes || '',
         cost: typeof data.cost === 'string' ? parseRupiah(data.cost) : (Number(data.cost) || 0),
-        createdBy: auth.currentUser.uid
-      });
+        createdBy: user.uid,
+        clinicId: user.uid
+      };
 
+      const res = await api.post('/visits', newVisit);
+
+      setVisits(prev => [{ ...newVisit, id: res?.id || Date.now().toString() } as any, ...prev]);
       toast.success('Kunjungan berhasil dicatat!');
       reset();
       setShowVisitForm(false);
@@ -217,6 +178,14 @@ function PatientDetail() {
                 <span className="block text-gray-500 dark:text-gray-400 mb-2">Alamat</span>
                 <div className="font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 text-sm leading-relaxed">
                   {patient.address}
+                </div>
+              </div>
+
+              {/* ALLERGY INFO */}
+              <div className="pt-2">
+                <span className="block text-red-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Riwayat Alergi</span>
+                <div className={`p-3 rounded-xl border font-bold text-sm ${patient.allergies ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-400 animate-pulse' : 'bg-gray-50 border-gray-100 text-gray-400 dark:bg-gray-800 dark:border-gray-700'}`}>
+                   {patient.allergies || 'TIDAK ADA ALERGI'}
                 </div>
               </div>
             </div>
@@ -349,7 +318,7 @@ function PatientDetail() {
             </div>
           ) : (
             [...visits, ...examinations]
-              .sort((a, b) => b.date.seconds - a.date.seconds)
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
               .map((item) => {
                 const isExamination = 'pemeriksaan' in item;
                 const diagnosis = isExamination ? (item as Examination).diagnosa : (item as Visit).diagnosis;
@@ -358,9 +327,9 @@ function PatientDetail() {
                   <div key={item.id} className="relative flex flex-col md:flex-row items-start group z-10">
                     {/* Tanggal (Desktop) */}
                     <div className="hidden md:block w-32 text-right pr-8 pt-2">
-                      <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{format(item.date.toDate(), 'dd MMM', { locale: localeId })}</div>
-                      <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{format(item.date.toDate(), 'yyyy', { locale: localeId })}</div>
-                      <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{format(item.date.toDate(), 'HH:mm', { locale: localeId })}</div>
+                      <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{format(new Date(item.date), 'dd MMM', { locale: localeId })}</div>
+                      <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{format(new Date(item.date), 'yyyy', { locale: localeId })}</div>
+                      <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{format(new Date(item.date), 'HH:mm', { locale: localeId })}</div>
                       {isExamination && <span className="block mt-1 text-[10px] font-bold text-purple-600 dark:text-purple-400">PEMERIKSAAN</span>}
                     </div>
 
@@ -378,8 +347,8 @@ function PatientDetail() {
                       {/* Tanggal (Mobile) */}
                       <div className="md:hidden flex items-center gap-2 mb-3 text-sm text-gray-500 pb-3 border-b border-gray-50 dark:border-gray-700">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <span className="font-bold text-gray-900 dark:text-white">{format(item.date.toDate(), 'dd MMMM yyyy', { locale: localeId })}</span>
-                        <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs dark:text-gray-300">{format(item.date.toDate(), 'HH:mm', { locale: localeId })}</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{format(new Date(item.date), 'dd MMMM yyyy', { locale: localeId })}</span>
+                        <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs dark:text-gray-300">{format(new Date(item.date), 'HH:mm', { locale: localeId })}</span>
                         {isExamination && <span className="ml-auto text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 rounded-full">PEMERIKSAAN</span>}
                       </div>
 
@@ -392,16 +361,16 @@ function PatientDetail() {
                         {/* Tampilan Khusus Pemeriksaan */}
                         {isExamination ? (
                           <>
-                            {(item as Examination).keluhan && (
+                            {(item as Examination).keluhanUtama && (
                               <div className="grid grid-cols-1 gap-1">
                                 <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Keluhan</span>
-                                <p className="text-gray-700 dark:text-gray-300 italic">"{(item as Examination).keluhan}"</p>
+                                <p className="text-gray-700 dark:text-gray-300 italic">"{(item as Examination).keluhanUtama}"</p>
                               </div>
                             )}
-                            {(item as Examination).pemeriksaan && (
+                            {(item as Examination).pemeriksaanFisik && (
                               <div className="grid grid-cols-1 gap-1">
-                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Hasil Pemeriksaan</span>
-                                <p className="text-gray-700 dark:text-gray-300">{(item as Examination).pemeriksaan}</p>
+                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Pemeriksaan Fisik</span>
+                                <p className="text-gray-700 dark:text-gray-300">{(item as Examination).pemeriksaanFisik}</p>
                               </div>
                             )}
                             {(item as Examination).medicines && (item as Examination).medicines.length > 0 && (

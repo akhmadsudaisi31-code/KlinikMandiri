@@ -3,37 +3,55 @@ import { useForm, SubmitHandler } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, Timestamp, auth } from '../firebaseConfig';
-import {
-    doc,
-    getDoc,
-    addDoc,
-    updateDoc,
-    deleteDoc,
-    collection,
-    query,
-    onSnapshot,
-    orderBy,
-    where
-} from 'firebase/firestore';
-import { Patient, Medicine, MedicineItem } from '../types';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
+import { Patient, Medicine, MedicineItem, EXAM_CATEGORIES } from '../types';
+import { format, addDays, subMonths, addYears } from 'date-fns';
 import toast from 'react-hot-toast';
 import { MedicineSelectorModal } from '../components/MedicineSelectorModal';
 import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
 
 const schema = z.object({
-    keluhan: z.string().optional(),
-    pemeriksaan: z.string().optional(),
-    diagnosa: z.string().optional(),
+    // S
+    keluhanUtama: z.string().min(1, 'Keluhan utama wajib diisi'),
+    riwayatPenyakitSekarang: z.string().optional(),
+    
+    // O
+    tensi: z.string().optional(),
+    nadi: z.string().optional(),
+    suhu: z.string().optional(),
+    respirasi: z.string().optional(),
+    bb: z.string().optional(),
+    tb: z.string().optional(),
+    spo2: z.string().optional(),
+    pemeriksaanFisik: z.string().optional(),
+    
+    // A
+    diagnosa: z.string().min(1, 'Diagnosa wajib diisi'),
+    icd10: z.string().optional(),
+    
+    // P
+    tindakan: z.string().optional(),
+    edukasi: z.string().optional(),
+    rencanaTindakLanjut: z.string().optional(),
     biaya: z.string().optional(),
+    allergies: z.string().optional(),
+    examCategory: z.enum(EXAM_CATEGORIES),
+    
+    // Extended Data (Optional based on category)
+    hpht: z.string().optional(),
+    gpa: z.string().optional(),
+    tfu: z.string().optional(),
+    djj: z.string().optional(),
+    leopold: z.string().optional(),
+    lingkarKepala: z.string().optional(),
+    lingkarLengan: z.string().optional(),
+    statusImunisasi: z.string().optional(),
+    adlScore: z.string().optional(),
+    statusFungsional: z.string().optional(),
 });
 
-type ExaminationFormData = {
-    keluhan?: string;
-    pemeriksaan?: string;
-    diagnosa?: string;
-    biaya?: string;
-};
+type ExaminationFormData = z.infer<typeof schema>;
 
 function ExaminationForm() {
     const { patientId } = useParams<{ patientId: string }>();
@@ -46,47 +64,76 @@ function ExaminationForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingData, setIsFetchingData] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const { user } = useAuth();
     
-    // Detail Modal State
     const [selectedExam, setSelectedExam] = useState<any>(null);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-    
-    // State for Edit Mode
     const [editingExamId, setEditingExamId] = useState<string | null>(null);
+    
+    // Dynamic Allergy State
+    const [allergyList, setAllergyList] = useState<string[]>([]);
+    const [newAllergy, setNewAllergy] = useState('');
 
     const {
         register,
         handleSubmit,
         setValue,
+        watch,
         reset,
         formState: { errors, isSubmitting }
     } = useForm<ExaminationFormData>({
         resolver: zodResolver(schema),
         defaultValues: {
-            keluhan: '',
-            pemeriksaan: '',
+            keluhanUtama: '',
+            riwayatPenyakitSekarang: '',
+            tensi: '',
+            nadi: '',
+            suhu: '',
+            respirasi: '',
+            bb: '',
+            tb: '',
+            spo2: '',
+            pemeriksaanFisik: '',
             diagnosa: '',
+            icd10: '',
+            tindakan: '',
+            edukasi: '',
+            rencanaTindakLanjut: '',
             biaya: '',
+            allergies: '',
+            examCategory: 'Umum',
+            hpht: '', gpa: '', tfu: '', djj: '', leopold: '',
+            lingkarKepala: '', lingkarLengan: '', statusImunisasi: '',
+            adlScore: '', statusFungsional: '',
         }
     });
 
-    // Fetch patient data
-    useEffect(() => {
-        if (!patientId) {
-            toast.error('ID Pasien tidak valid');
-            navigate('/pemeriksaan');
-            return;
-        }
+    const watchCategory = watch('examCategory');
+    const watchHpht = watch('hpht');
+    const [htpPreview, setHtpPreview] = useState<string>('');
 
+    // HTP Calculation for Bumil
+    useEffect(() => {
+        if (watchHpht && watchCategory === 'Bumil') {
+            try {
+                const date = new Date(watchHpht);
+                // Rumus Naegele: (Hari + 7), (Bulan - 3), (Tahun + 1)
+                const htpDate = addYears(subMonths(addDays(date, 7), 3), 1);
+                setHtpPreview(format(htpDate, 'dd MMMM yyyy'));
+            } catch (e) { setHtpPreview('-'); }
+        }
+    }, [watchHpht, watchCategory]);
+
+    useEffect(() => {
+        if (!patientId || !user) return;
         const fetchPatient = async () => {
             try {
-                const docRef = doc(db, 'patients', patientId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
-                } else {
-                    toast.error('Data pasien tidak ditemukan.');
-                    navigate('/pemeriksaan');
+                const data = await api.get(`/patients/${patientId}`);
+                if (data) {
+                    setPatient(data as Patient);
+                    if ((data as any).allergies) {
+                        setAllergyList((data as any).allergies.split(',').map((s: string) => s.trim()).filter(Boolean));
+                    }
                 }
             } catch (error) {
                 toast.error('Gagal mengambil data pasien.');
@@ -95,448 +142,555 @@ function ExaminationForm() {
                 setIsFetchingData(false);
             }
         };
-
         fetchPatient();
-    }, [patientId, navigate]);
+    }, [patientId, navigate, user]);
 
-    // Fetch patient examination history
     useEffect(() => {
-        if (!patientId) return;
-
-        const q = query(
-            collection(db, 'examinations'),
-            where('patientId', '==', patientId),
-            orderBy('createdAt', 'desc')
-        );
-
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const history: any[] = [];
-            querySnapshot.forEach((doc) => {
-                history.push({ id: doc.id, ...doc.data() });
-            });
-            setPatientHistory(history);
-        });
-
-        return () => unsubscribe();
-    }, [patientId]);
-
-    // Fetch medicines
-    useEffect(() => {
-        const q = query(collection(db, "medicines"), orderBy("name", "asc"));
-
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const medicinesData: Medicine[] = [];
-            querySnapshot.forEach((doc) => {
-                medicinesData.push({ id: doc.id, ...doc.data() } as Medicine);
-            });
-            setMedicines(medicinesData);
-        }, (error) => {
-            console.error("Error fetching medicines: ", error);
-        });
-
-        return () => unsubscribe();
-    }, []);
+        if (!patientId || !user) return;
+        const fetchHistory = async () => {
+             try {
+                const history = await api.get(`/examinations?patientId=${patientId}`);
+                setPatientHistory(history || []);
+             } catch (e) { console.error(e); }
+        };
+        const fetchMedicines = async () => {
+             try {
+                 const meds = await api.get('/medicines');
+                 setMedicines(meds || []);
+             } catch (e) { console.error(e); }
+        };
+        fetchHistory();
+        fetchMedicines();
+    }, [patientId, user]);
 
     const handleAddMedicine = (medicineId: string) => {
         const medicine = medicines.find(m => m.id === medicineId);
         if (!medicine) return;
-
-        // Check if already added
         if (selectedMedicines.find(m => m.medicineId === medicineId)) {
             toast.error('Obat sudah ditambahkan');
             return;
         }
-
-        const newMedicineItem: MedicineItem = {
+        setSelectedMedicines([...selectedMedicines, {
             medicineId: medicine.id,
             medicineName: medicine.name,
             quantity: 1,
             unit: medicine.unit,
-        };
-
-        setSelectedMedicines([...selectedMedicines, newMedicineItem]);
+        }]);
     };
 
-    const handleRemoveMedicine = (medicineId: string) => {
-        setSelectedMedicines(selectedMedicines.filter(m => m.medicineId !== medicineId));
+    const handleAddAllergy = () => {
+        if (newAllergy.trim() && !allergyList.includes(newAllergy.trim())) {
+            setAllergyList([...allergyList, newAllergy.trim()]);
+            setNewAllergy('');
+        }
     };
 
-    const handleQuantityChange = (medicineId: string, quantity: number) => {
-        if (quantity < 1) return;
-        setSelectedMedicines(selectedMedicines.map(m =>
-            m.medicineId === medicineId ? { ...m, quantity } : m
-        ));
+    const handleRemoveAllergy = (allergy: string) => {
+        setAllergyList(allergyList.filter(a => a !== allergy));
     };
 
     const handleEdit = (exam: any) => {
         setEditingExamId(exam.id);
-        setValue('keluhan', exam.keluhan || '');
-        setValue('pemeriksaan', exam.pemeriksaan || '');
+        setValue('keluhanUtama', exam.keluhanUtama || '');
+        setValue('riwayatPenyakitSekarang', exam.riwayatPenyakitSekarang || '');
+        setValue('tensi', exam.tensi || '');
+        setValue('nadi', exam.nadi ? String(exam.nadi) : '');
+        setValue('suhu', exam.suhu ? String(exam.suhu) : '');
+        setValue('respirasi', exam.respirasi ? String(exam.respirasi) : '');
+        setValue('bb', exam.bb ? String(exam.bb) : '');
+        setValue('tb', exam.tb ? String(exam.tb) : '');
+        setValue('spo2', exam.spo2 ? String(exam.spo2) : '');
+        setValue('pemeriksaanFisik', exam.pemeriksaanFisik || '');
         setValue('diagnosa', exam.diagnosa || '');
+        setValue('icd10', exam.icd10 || '');
+        setValue('tindakan', exam.tindakan || '');
+        setValue('edukasi', exam.edukasi || '');
+        setValue('rencanaTindakLanjut', exam.rencanaTindakLanjut || '');
         setValue('biaya', exam.biaya ? String(exam.biaya) : '');
         setSelectedMedicines(exam.medicines || []);
-        
-        window.scrollTo({ top: 300, behavior: 'smooth' });
-        toast('Masuk mode edit pemeriksaan.', { icon: '✏️', duration: 1000 });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleCancelEdit = () => {
         setEditingExamId(null);
         reset();
         setSelectedMedicines([]);
-        toast('Batal edit.', { icon: '↩️', duration: 1000 });
-    };
-
-    const handleDelete = async (examId: string) => {
-        if (window.confirm("Apakah Anda yakin ingin menghapus riwayat pemeriksaan ini?")) {
-            try {
-                await deleteDoc(doc(db, "examinations", examId));
-                toast.success("Riwayat pemeriksaan berhasil dihapus");
-                if (editingExamId === examId) {
-                    handleCancelEdit();
-                }
-            } catch (error) {
-                console.error("Error deleting examination:", error);
-                toast.error("Gagal menghapus pemeriksaan");
-            }
-        }
+        setAllergyList(patient?.allergies ? patient.allergies.split(',').map(s => s.trim()).filter(Boolean) : []);
     };
 
     const onSubmit: SubmitHandler<ExaminationFormData> = async (data) => {
         setIsLoading(true);
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-            toast.error('Anda harus login.');
-            setIsLoading(false);
-            return;
-        }
-
-        if (!patient) {
-            toast.error('Data pasien tidak ditemukan.');
-            setIsLoading(false);
-            return;
-        }
-
-        const now = Timestamp.now();
-
+        if (!user || !patient) return;
+        const now = new Date().toISOString();
         try {
             const examinationData: any = {
                 patientId: patient.id,
                 patientName: patient.name,
                 patientRm: patient.rm,
-                // date: now, // Jangan update date jika edit? Atau update 'updatedAt'?
-                // CreatedAt jangan diubah jika edit
-                // CreatedBy jangan diubah
+                ...data,
+                nadi: data.nadi ? Number(data.nadi) : null,
+                suhu: data.suhu ? Number(data.suhu) : null,
+                respirasi: data.respirasi ? Number(data.respirasi) : null,
+                bb: data.bb ? Number(data.bb) : null,
+                tb: data.tb ? Number(data.tb) : null,
+                spo2: data.spo2 ? Number(data.spo2) : null,
+                biaya: data.biaya ? Number(data.biaya) : 0,
+                medicines: selectedMedicines,
+                extendedData_json: JSON.stringify({
+                    category: data.examCategory,
+                    hpht: data.hpht,
+                    gpa: data.gpa,
+                    tfu: data.tfu,
+                    djj: data.djj,
+                    leopold: data.leopold,
+                    lingkarKepala: data.lingkarKepala,
+                    lingkarLengan: data.lingkarLengan,
+                    statusImunisasi: data.statusImunisasi,
+                    adlScore: data.adlScore,
+                    statusFungsional: data.statusFungsional,
+                }),
+                updatedAt: now,
+                updatedBy: user.uid,
             };
 
-            // Basic fields
-            examinationData.keluhan = data.keluhan || null;
-            examinationData.pemeriksaan = data.pemeriksaan || null;
-            examinationData.diagnosa = data.diagnosa || null;
-            examinationData.medicines = selectedMedicines;
-            examinationData.biaya = data.biaya ? Number(data.biaya) : 0;
-            examinationData.updatedAt = now;
-            examinationData.updatedBy = currentUser.uid;
+            const finalAllergies = allergyList.length > 0 ? allergyList.join(', ') : '';
+
+            // UPDATE PERMANENT ALLERGY DATA on Patient record
+            if (finalAllergies !== patient.allergies) {
+                try {
+                    await api.put(`/patients/${patient.id}`, {
+                        ...patient,
+                        allergies: finalAllergies || null,
+                        updatedAt: now
+                    });
+                } catch (e) {
+                    console.error("Gagal update data alergi permanen:", e);
+                }
+            }
 
             if (editingExamId) {
-                // UPDATE EXISTING
-                const examRef = doc(db, 'examinations', editingExamId);
-                await updateDoc(examRef, examinationData);
-                toast.success(`Pemeriksaan berhasil diperbarui.`, { duration: 1000 });
-                handleCancelEdit(); // Reset form & exit edit mode
+                await api.put(`/examinations/${editingExamId}`, examinationData);
+                toast.success(`Berhasil diperbarui.`);
+                handleCancelEdit();
             } else {
-                // CREATE NEW
+                examinationData.clinicId = user.uid;
                 examinationData.date = now;
                 examinationData.createdAt = now;
-                examinationData.createdBy = currentUser.uid;
-                
-                await addDoc(collection(db, 'examinations'), examinationData);
-                toast.success(`Pemeriksaan untuk ${patient.name} berhasil disimpan.`);
-                
-                // Reset form manually for create mode (or use common reset)
-                reset();
-                setSelectedMedicines([]);
+                examinationData.createdBy = user.uid;
+                await api.post('/examinations', examinationData);
+                toast.success(`Pemeriksaan berhasil disimpan. Dialihkan ke Riwayat Pasien.`);
+                navigate(`/pasien/${patient.id}`); 
             }
-            // navigate('/pemeriksaan'); // Stay on page to allow more inputs or review? 
-            // Usually we stay or go back. The previous code navigated back.
-            // If editing history, maybe stay? If creating new, maybe go back?
-            // "on form pemeriksaan tambahkan tombol edit...". 
-            // If I edit history, I probably want to see it updated in the list above.
-            // Let's stay on the page for Edit, but for New... previously it navigated away.
-            // Let's navigate away for NEW, stay for EDIT.
-             if (!editingExamId) {
-                 navigate('/pemeriksaan'); 
-             }
         } catch (error) {
-            console.error("Error saving examination:", error);
-            toast.error('Gagal menyimpan data pemeriksaan. Cek koneksi atau izin.');
+            toast.error('Gagal menyimpan data.');
         } finally {
             setIsLoading(false);
         }
     };
 
-    if (isFetchingData) return <p className="text-center text-gray-600 dark:text-gray-400 p-10">Memuat data...</p>;
+    if (isFetchingData) return <p className="text-center p-10">Memuat data...</p>;
     if (!patient) return null;
 
     return (
-        <div className="w-full mx-auto pb-20">
-            {/* Patient Info Header */}
-            <div className={`bg-gradient-to-r ${editingExamId ? 'from-yellow-50 border-yellow-100' : 'from-green-50 border-green-100'} to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-t-2xl border dark:border-dark-border border-b-0`}>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {editingExamId ? 'Edit Pemeriksaan (Mode Koreksi)' : 'Form Pemeriksaan'}
-                </h1>
-                <div className="mt-3 flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                        <span className="text-gray-500 dark:text-gray-400">Pasien:</span>
-                        <span className="font-bold text-gray-900 dark:text-white">{patient.name}</span>
+        <div className="w-full mx-auto pb-20 space-y-6">
+            {/* Patient Header Card */}
+            <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight">
+                            {editingExamId ? 'Edit Pemeriksaan SOAP' : 'Pemeriksaan SOAP Baru'}
+                        </h1>
+                        <p className="text-gray-500 dark:text-gray-400 text-sm">Standar Pelayanan Rekam Medis Nasional</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-gray-500 dark:text-gray-400">RM:</span>
-                        <span className="font-mono font-bold text-gray-900 dark:text-white">{patient.rm}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-gray-500 dark:text-gray-400">Umur:</span>
-                        <span className="font-bold text-gray-900 dark:text-white">{patient.ageDisplay}</span>
+                    <div className="flex flex-wrap gap-2">
+                        <span className="px-3 py-1 bg-primary-50 text-primary-700 rounded-full text-xs font-bold ring-1 ring-primary-100 uppercase">{patient.rm}</span>
+                        <span className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-bold ring-1 ring-green-100 uppercase">{patient.gender}</span>
                     </div>
                 </div>
-                <div className="mt-2 flex items-center gap-2 text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Alamat:</span>
-                    <span className="font-bold text-gray-900 dark:text-white uppercase">{patient.address}</span>
+                
+                <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                    <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Nama Pasien</p>
+                        <p className="font-bold text-gray-900 dark:text-white">{patient.name}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Umur / Tgl Lahir</p>
+                        <p className="font-bold text-gray-900 dark:text-white">{patient.ageDisplay}</p>
+                    </div>
+                    <div className="md:col-span-1 border-l border-gray-200 dark:border-gray-700 md:pl-4">
+                        <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Alergi Pasien</p>
+                        <p className={`font-black text-xs ${patient.allergies ? 'text-red-600 animate-pulse' : 'text-gray-400'}`}>
+                            {patient.allergies || 'TIDAK ADA'}
+                        </p>
+                    </div>
+                    <div className="md:col-span-1 border-l border-gray-200 dark:border-gray-700 md:pl-4">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Alamat</p>
+                        <p className="font-medium text-gray-700 dark:text-gray-300 text-xs line-clamp-1">{patient.address}</p>
+                    </div>
                 </div>
             </div>
 
-            {/* Patient Visit History */}
-            {patientHistory.length > 0 && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-6 border-x border-blue-100 dark:border-blue-800">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-blue-600 dark:text-blue-400">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Riwayat Kunjungan ({patientHistory.length})
-                    </h2>
-                    <div className="space-y-3 max-h-60 overflow-y-auto">
-                        {patientHistory.map((visit, index) => (
+            {/* Riwayat Kunjungan Singkat */}
+            {patientHistory.length > 0 && !editingExamId && (
+                <div className="mb-6">
+                   <div className="flex items-center gap-2 mb-3">
+                        <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
+                        <h2 className="font-black text-gray-900 dark:text-white uppercase text-sm tracking-widest">Riwayat Terakhir</h2>
+                   </div>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {patientHistory.slice(0, 3).map(h => (
                             <div 
-                                key={visit.id} 
-                                onClick={() => {
-                                    setSelectedExam(visit);
-                                    setIsDetailModalOpen(true);
-                                }}
-                                className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-blue-200 dark:border-gray-700 relative group cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                                key={h.id} 
+                                onClick={() => { setSelectedExam(h); setIsDetailModalOpen(true); }}
+                                className="group relative p-4 bg-white dark:bg-dark-surface rounded-xl shadow-sm border border-gray-100 dark:border-dark-border cursor-pointer hover:border-primary-300 transition-all"
                             >
-                                <div className="flex justify-between items-start mb-2">
-                                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
-                                        Kunjungan #{patientHistory.length - index}
-                                    </span>
-                                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                        <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">
-                                            {visit.createdAt && new Date(visit.createdAt.toDate()).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric'
-                                            })}
-                                        </span>
-                                        {/* Action Buttons */}
-                                        <button 
-                                            onClick={() => handleEdit(visit)}
-                                            className="p-1.5 text-yellow-600 hover:bg-yellow-100 rounded-md transition-colors"
-                                            title="Edit Kunjungan"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                                            </svg>
-                                        </button>
-                                        <button 
-                                            onClick={() => handleDelete(visit.id)}
-                                            className="p-1.5 text-red-600 hover:bg-red-100 rounded-md transition-colors"
-                                            title="Hapus Kunjungan"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                                            </svg>
-                                        </button>
-                                    </div>
+                                <div className="flex justify-between items-start mb-1">
+                                    <p className="text-[10px] font-bold text-blue-500 dark:text-blue-400">{new Date(h.date).toLocaleDateString('id-ID')}</p>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); handleEdit(h); }}
+                                        className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-primary-600 transition-all"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                        </svg>
+                                    </button>
                                 </div>
-                                {visit.diagnosa && (
-                                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-1">
-                                        <span className="font-semibold">Diagnosa:</span> {visit.diagnosa}
-                                    </p>
-                                )}
-                                {visit.medicines && visit.medicines.length > 0 && (
-                                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                                        <span className="font-semibold">Obat:</span> {visit.medicines.map((m: any) => m.medicineName).join(', ')}
-                                    </p>
-                                )}
+                                <p className="text-xs font-bold text-gray-800 dark:text-white line-clamp-1 uppercase">{h.diagnosa}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{h.tindakan || h.keluhanUtama || 'Pemeriksaan rutin'}</p>
                             </div>
                         ))}
-                    </div>
+                   </div>
                 </div>
             )}
 
-            <div className="bg-white dark:bg-dark-surface p-6 md:p-8 rounded-b-2xl shadow-soft dark:shadow-none border border-green-100 dark:border-dark-border border-t-0 transition-colors">
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                
+                {/* KATEGORI PEMERIKSAAN (STANDARD TABS) */}
+                <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border flex flex-wrap gap-2">
+                    {EXAM_CATEGORIES.map((cat) => (
+                        <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setValue('examCategory', cat)}
+                            className={`flex-1 min-w-[100px] py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                                watchCategory === cat 
+                                ? 'bg-primary-600 text-white shadow-lg shadow-primary-200' 
+                                : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800'
+                            }`}
+                        >
+                            {cat}
+                        </button>
+                    ))}
+                </div>
 
-                    {/* Keluhan */}
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Keluhan Pasien</label>
-                        <textarea
-                            {...register('keluhan')}
-                            rows={3}
-                            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                            placeholder="Tuliskan keluhan yang disampaikan pasien..."
-                        />
-                        {errors.keluhan && <p className="mt-1 text-sm text-red-600">{errors.keluhan.message}</p>}
+                {/* S - SUBJECTIVE */}
+                <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
+                    <div className="bg-primary-500 px-6 py-3 flex justify-between items-center">
+                        <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">S - SUBJECTIVE (Anamnesis)</h3>
+                        <span className="px-3 py-1 bg-white/20 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">{watchCategory}</span>
                     </div>
-
-                    {/* Pemeriksaan */}
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Hasil Pemeriksaan</label>
-                        <textarea
-                            {...register('pemeriksaan')}
-                            rows={4}
-                            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                            placeholder="Tuliskan hasil pemeriksaan fisik, vital signs, dll..."
-                        />
-                        {errors.pemeriksaan && <p className="mt-1 text-sm text-red-600">{errors.pemeriksaan.message}</p>}
-                    </div>
-
-                    {/* Diagnosa */}
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Diagnosa</label>
-                        <textarea
-                            {...register('diagnosa')}
-                            rows={3}
-                            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                            placeholder="Tuliskan diagnosa medis..."
-                        />
-                        {errors.diagnosa && <p className="mt-1 text-sm text-red-600">{errors.diagnosa.message}</p>}
-                    </div>
-
-                    {/* Obat Section */}
-                    <div className="bg-purple-50 dark:bg-purple-900/20 p-5 rounded-xl border border-purple-100 dark:border-purple-800">
-                        <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-purple-500">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-                            </svg>
-                            Obat yang Diberikan
-                        </h3>
-
-                        {/* Add Medicine Button (Mobile Friendly) */}
-                        <div className="mb-4">
-                            <button
-                                type="button"
-                                onClick={() => setIsModalOpen(true)}
-                                className="w-full py-3 px-4 border-2 border-dashed border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/10 rounded-xl text-purple-600 dark:text-purple-400 font-semibold flex items-center justify-center gap-2 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                                Tambah Obat
-                            </button>
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Keluhan Utama <span className="text-red-500">*</span></label>
+                            <textarea 
+                                {...register('keluhanUtama')}
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all outline-none"
+                                rows={2}
+                                placeholder="Contoh: Panas sejak 3 hari yang lalu..."
+                            />
+                            {errors.keluhanUtama && <p className="mt-1 text-xs text-red-500">{errors.keluhanUtama.message}</p>}
+                        </div>
+                        <div>
+                            <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Riwayat Penyakit Sekarang</label>
+                            <textarea 
+                                {...register('riwayatPenyakitSekarang')}
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all outline-none"
+                                rows={3}
+                                placeholder="Detail perjalanan penyakit..."
+                            />
                         </div>
 
-                        <MedicineSelectorModal
-                            isOpen={isModalOpen}
-                            onClose={() => setIsModalOpen(false)}
-                            medicines={medicines}
-                            onSelect={handleAddMedicine}
-                        />
-
-                        {/* Selected Medicines List */}
-                        {selectedMedicines.length === 0 ? (
-                            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">Belum ada obat yang dipilih</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {selectedMedicines.map((item) => (
-                                    <div key={item.medicineId} className="flex items-center gap-3 bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-                                        <div className="flex-1">
-                                            <p className="text-sm font-bold text-gray-900 dark:text-white">{item.medicineName}</p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => handleQuantityChange(item.medicineId, item.quantity - 1)}
-                                                className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center text-gray-600 dark:text-gray-300"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
-                                                </svg>
-                                            </button>
-                                            <input
-                                                type="number"
-                                                value={item.quantity}
-                                                onChange={(e) => handleQuantityChange(item.medicineId, parseInt(e.target.value) || 1)}
-                                                className="w-16 px-2 py-1 text-center border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-white rounded-lg text-sm font-bold"
-                                                min="1"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => handleQuantityChange(item.medicineId, item.quantity + 1)}
-                                                className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center text-gray-600 dark:text-gray-300"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleRemoveMedicine(item.medicineId)}
-                                            className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                                            title="Hapus"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        </button>
+                        {/* ALLERGY INPUT */}
+                        <div className="pt-2">
+                            <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30">
+                                <label className="block text-[11px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                    </svg>
+                                    RIWAYAT ALERGI (Data Permanen)
+                                </label>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <input 
+                                        type="text"
+                                        value={newAllergy}
+                                        onChange={(e) => setNewAllergy(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleAddAllergy();
+                                            }
+                                        }}
+                                        className="w-full sm:flex-1 px-4 py-3 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm font-bold text-red-700 dark:text-red-400"
+                                        placeholder="Ketik alergi (contoh: Amoxicillin)..."
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleAddAllergy}
+                                        disabled={!newAllergy.trim()}
+                                        className="w-full sm:w-auto px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                            <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                                        </svg>
+                                        Tambah
+                                    </button>
+                                </div>
+                                {allergyList.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-4">
+                                        {allergyList.map((allergy, index) => (
+                                            <span key={index} className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-bold border border-red-200 dark:border-red-800">
+                                                {allergy}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveAllergy(allergy)}
+                                                    className="p-0.5 hover:bg-red-200 dark:hover:bg-red-800 rounded-md transition-colors"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                                    </svg>
+                                                </button>
+                                            </span>
+                                        ))}
                                     </div>
-                                ))}
+                                )}
+                            </div>
+                        </div>
+
+                        {/* CATEGORY SPECIFIC SUBJECTIVE */}
+                        {watchCategory === 'Bumil' && (
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">HPHT (Terakhir)</label>
+                                    <input type="date" {...register('hpht')} className="w-full px-3 py-2 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-lg text-sm font-bold" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">GPA (G-P-A)</label>
+                                    <input type="text" {...register('gpa')} placeholder="G1 P0 A0" className="w-full px-3 py-2 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-lg text-sm font-bold" />
+                                </div>
+                                {htpPreview && (
+                                    <div className="col-span-2 p-3 bg-blue-600 rounded-xl text-white">
+                                        <p className="text-[10px] font-bold uppercase opacity-80">Tafsiran Persalinan (HTP)</p>
+                                        <p className="text-lg font-black">{htpPreview}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {watchCategory === 'Anak' || watchCategory === 'Balita' ? (
+                            <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Riwayat Imunisasi & Tumbuh Kembang</label>
+                                <textarea {...register('statusImunisasi')} rows={2} className="w-full px-4 py-2 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800 rounded-lg text-sm" placeholder="Contoh: Lengkap sesuai usia, KPSP sesuai..." />
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+
+                {/* O - OBJECTIVE */}
+                <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
+                    <div className="bg-green-500 px-6 py-3">
+                        <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">O - OBJECTIVE (Pemeriksaan Fisik)</h3>
+                    </div>
+                    <div className="p-6 space-y-6">
+                        {/* Vital Signs Grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">Tensi (mmHg)</label>
+                                <input type="text" {...register('tensi')} placeholder="120/80" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">Nadi (/mnt)</label>
+                                <input type="number" {...register('nadi')} placeholder="80" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">Suhu (°C)</label>
+                                <input type="text" {...register('suhu')} placeholder="36.5" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">Resp (/mnt)</label>
+                                <input type="number" {...register('respirasi')} placeholder="20" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">BB (kg)</label>
+                                <input type="text" {...register('bb')} placeholder="60" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">TB (cm)</label>
+                                <input type="text" {...register('tb')} placeholder="165" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase">SPO2 (%)</label>
+                                <input type="number" {...register('spo2')} placeholder="98" className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-bold" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Pemeriksaan Fisik</label>
+                            <textarea 
+                                {...register('pemeriksaanFisik')}
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-green-500 focus:bg-white transition-all outline-none"
+                                rows={3}
+                                placeholder="Status generalis, kepala, leher, dada, perut, ekstremitas..."
+                            />
+                        </div>
+
+                        {/* CATEGORY SPECIFIC OBJECTIVE */}
+                        {watchCategory === 'Bumil' && (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-green-100 dark:border-green-900/30">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tinggi Fundus (cm)</label>
+                                    <input type="text" {...register('tfu')} className="w-full px-3 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">DJJ (/mnt)</label>
+                                    <input type="text" {...register('djj')} className="w-full px-3 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Posisi/Leopold</label>
+                                    <input type="text" {...register('leopold')} placeholder="Kepala, Leopold I-IV" className="w-full px-3 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
+                            </div>
+                        )}
+
+                        {watchCategory === 'Balita' || watchCategory === 'Anak' ? (
+                            <div className="grid grid-cols-2 gap-6 pt-6 border-t border-green-100 dark:border-green-900/30">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Lingkar Kepala (cm)</label>
+                                    <input type="text" {...register('lingkarKepala')} className="w-full px-3 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Lingkar Lengan (cm)</label>
+                                    <input type="text" {...register('lingkarLengan')} className="w-full px-3 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {watchCategory === 'Lansia' && (
+                            <div className="grid grid-cols-2 gap-6 pt-6 border-t border-green-100 dark:border-green-900/30">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Skor ADL (Kemandirian)</label>
+                                    <input type="number" {...register('adlScore')} placeholder="0-20" className="w-full px-4 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Status Kognitif</label>
+                                    <input type="text" {...register('statusFungsional')} className="w-full px-4 py-2 bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg text-sm font-bold" />
+                                </div>
                             </div>
                         )}
                     </div>
+                </div>
 
-                    {/* Biaya (Optional) */}
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-                            Biaya (Opsional)
-                        </label>
-                        <input
-                            type="number"
-                            {...register('biaya')}
-                            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                            placeholder="0"
-                            min="0"
-                        />
-                        {errors.biaya && <p className="mt-1 text-sm text-red-600">{errors.biaya.message}</p>}
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-1">Kosongkan jika tidak ada biaya</p>
+                {/* A - ASSESSMENT */}
+                <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
+                    <div className="bg-yellow-500 px-6 py-3">
+                        <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">A - ASSESSMENT (Diagnosa)</h3>
                     </div>
-
-                    {/* Tombol Aksi */}
-                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-6 border-t border-gray-100 dark:border-gray-700">
-                        <button
-                            type="button"
-                            onClick={editingExamId ? handleCancelEdit : () => navigate('/pemeriksaan')}
-                            className="w-full sm:w-auto px-6 py-3 font-bold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            {editingExamId ? 'Batal Edit' : 'Kembali'}
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={isSubmitting || isLoading}
-                            className={`w-full sm:w-auto px-8 py-3 font-bold text-white rounded-xl shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5 ${editingExamId ? 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-200 focus:ring-yellow-500' : 'bg-green-600 hover:bg-green-700 shadow-green-200 focus:ring-green-500'}`}
-                        >
-                            {isSubmitting || isLoading ? 'Menyimpan...' : (editingExamId ? 'SIMPAN PERUBAHAN' : 'SIMPAN PEMERIKSAAN')}
-                        </button>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="md:col-span-2">
+                            <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Diagnosa Medis <span className="text-red-500">*</span></label>
+                            <input 
+                                type="text"
+                                {...register('diagnosa')}
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:bg-white transition-all outline-none font-bold"
+                                placeholder="Nama penyakit / diagnosa..."
+                            />
+                            {errors.diagnosa && <p className="mt-1 text-xs text-red-500">{errors.diagnosa.message}</p>}
+                        </div>
+                        <div>
+                            <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Kode ICD-10</label>
+                            <input 
+                                type="text"
+                                {...register('icd10')}
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:bg-white transition-all outline-none font-mono uppercase"
+                                placeholder="Contoh: A00.0"
+                            />
+                        </div>
                     </div>
+                </div>
 
-                </form>
-            </div>
-            {/* Detail Modal */}
-            <ExaminationDetailModal 
-                isOpen={isDetailModalOpen} 
-                onClose={() => setIsDetailModalOpen(false)} 
-                data={selectedExam} 
-            />
+                {/* P - PLAN */}
+                <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
+                    <div className="bg-blue-500 px-6 py-3">
+                        <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">P - PLAN (Terapi & Rencana Tindak Lanjut)</h3>
+                    </div>
+                    <div className="p-6 space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Tindakan Medis</label>
+                                <textarea {...register('tindakan')} rows={2} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="Heacting, Injeksi, dll..." />
+                            </div>
+                            <div>
+                                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Edukasi / Saran</label>
+                                <textarea {...register('edukasi')} rows={2} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="Istirahat, kurangi gula, dll..." />
+                            </div>
+                        </div>
+
+                        {/* Prescriptions (Medicines) */}
+                        <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-2xl border border-purple-100 dark:border-purple-800">
+                           <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-xs font-black text-purple-700 dark:text-purple-400 uppercase tracking-widest">Resep Obat</h4>
+                                <button type="button" onClick={() => setIsModalOpen(true)} className="px-4 py-1.5 bg-purple-600 text-white text-[10px] font-black rounded-full hover:bg-purple-700 transition-all uppercase">Tambah Obat</button>
+                           </div>
+                           
+                           {selectedMedicines.length === 0 ? (
+                               <p className="text-[10px] text-gray-400 text-center py-4 uppercase font-bold tracking-widest italic">Belum ada resep ditambahkan</p>
+                           ) : (
+                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                   {selectedMedicines.map((item) => (
+                                       <div key={item.medicineId} className="flex items-center gap-3 bg-white dark:bg-gray-800 p-3 rounded-xl border border-purple-200 dark:border-gray-700">
+                                            <div className="flex-1">
+                                                <p className="text-xs font-black text-gray-900 dark:text-white uppercase">{item.medicineName}</p>
+                                                <p className="text-[10px] text-gray-500 font-bold">{item.quantity} {item.unit}</p>
+                                            </div>
+                                            <button type="button" onClick={() => setSelectedMedicines(prev => prev.filter(p => p.medicineId !== item.medicineId))} className="text-red-400 hover:text-red-600 transition-colors">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                       </div>
+                                   ))}
+                               </div>
+                           )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                            <div>
+                                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Rencana Tindak Lanjut</label>
+                                <input type="text" {...register('rencanaTindakLanjut')} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="Kontrol 3 hari lagi, Rujuk RS, dll..." />
+                            </div>
+                            <div>
+                                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Total Biaya Layanan (IDR)</label>
+                                <input type="number" {...register('biaya')} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold" placeholder="0" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Submit Logic */}
+                <div className="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-dark-border">
+                    <button type="button" onClick={() => navigate('/pemeriksaan')} className="text-sm font-black text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors uppercase tracking-[0.2em]">Batal</button>
+                    <button 
+                        type="submit" 
+                        disabled={isSubmitting || isLoading}
+                        className="px-10 py-4 bg-primary-600 text-white font-black rounded-2xl shadow-xl shadow-primary-500/30 hover:bg-primary-700 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-[0.2em] disabled:opacity-50"
+                    >
+                        {isSubmitting || isLoading ? 'Mengirim...' : 'Simpan SOAP'}
+                    </button>
+                </div>
+
+            </form>
+
+            <MedicineSelectorModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} medicines={medicines} onSelect={handleAddMedicine} />
+            <ExaminationDetailModal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} data={selectedExam} />
         </div>
     );
 }

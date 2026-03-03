@@ -1,13 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-    collection,
-    query,
-    onSnapshot,
-    orderBy,
-    deleteDoc,
-    doc
-} from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { useState, useEffect, useMemo } from 'react';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { Medicine } from '../types';
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -22,31 +15,35 @@ function MedicineList() {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const navigate = useNavigate();
+    const { user } = useAuth();
 
     useEffect(() => {
         setLoading(true);
-        const q = query(collection(db, "medicines"), orderBy("name", "asc"));
-
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const medicinesData: Medicine[] = [];
-            querySnapshot.forEach((doc) => {
-                medicinesData.push({ id: doc.id, ...doc.data() } as Medicine);
-            });
-            setMedicines(medicinesData);
+        if (!user) {
             setLoading(false);
-        }, (error) => {
-            console.error("Error fetching medicines: ", error);
-            setLoading(false);
-            toast.error("Gagal memuat data obat");
-        });
+            return;
+        }
 
-        return () => unsubscribe();
-    }, []);
+        const fetchMedicines = async () => {
+             try {
+                const data = await api.get('/medicines');
+                setMedicines(data || []);
+             } catch (e) {
+                console.error(e);
+                toast.error("Gagal memuat data obat");
+             } finally {
+                setLoading(false);
+             }
+        };
+
+        fetchMedicines();
+    }, [user]);
 
     const handleDelete = async (medicineId: string, medicineName: string) => {
         if (window.confirm(`Apakah Anda yakin ingin menghapus obat ${medicineName}?`)) {
             try {
-                await deleteDoc(doc(db, "medicines", medicineId));
+                await api.delete(`/medicines/${medicineId}`);
+                setMedicines(prev => prev.filter(m => m.id !== medicineId));
                 toast.success(`Obat ${medicineName} berhasil dihapus.`);
             } catch (error) {
                 console.error("Error deleting medicine: ", error);
@@ -165,7 +162,7 @@ function MedicineList() {
                                                             {medicine.name}
                                                         </div>
                                                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                                            Ditambahkan: {medicine.createdAt ? format(medicine.createdAt.toDate(), 'dd MMM yyyy', { locale: localeId }) : '-'}
+                                                            Ditambahkan: {medicine.createdAt ? format(new Date(medicine.createdAt), 'dd MMM yyyy', { locale: localeId }) : '-'}
                                                         </div>
                                                     </div>
                                                 </div>

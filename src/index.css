@@ -4,11 +4,12 @@
 
 @layer base {
   body {
-    background-color: #f0fdfa;
-    /* Light Teal Tint */
+    background-color: #fdf2f8; /* pink-50 */
+    /* Light Pastel Pink and Yellow Tint */
     background-image:
-      radial-gradient(at 0% 0%, hsla(168, 76%, 85%, 1) 0, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(180, 60%, 90%, 1) 0, transparent 50%);
+      radial-gradient(at 0% 0%, hsla(328, 100%, 94%, 1) 0, transparent 50%),
+      /* pink-100 */
+        radial-gradient(at 100% 0%, hsla(54, 100%, 90%, 1) 0, transparent 50%); /* yellow-200 */
     @apply text-gray-900 dark:bg-dark-bg dark:text-dark-text transition-colors duration-300;
   }
 }

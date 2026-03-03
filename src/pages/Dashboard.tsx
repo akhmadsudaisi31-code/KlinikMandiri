@@ -1,45 +1,36 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, where, Timestamp } from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 function Dashboard() {
     const [totalPatients, setTotalPatients] = useState<number>(0);
     const [todayExaminations, setTodayExaminations] = useState<number>(0);
     const [medicineStock, setMedicineStock] = useState<number>(0);
 
+    const { user } = useAuth();
+
     useEffect(() => {
-        // Fetch total patients
-        const patientsQuery = query(collection(db, "patients"));
-        const unsubscribePatients = onSnapshot(patientsQuery, (snapshot) => {
-            setTotalPatients(snapshot.size);
-        });
+        if (!user) return;
 
-        // Fetch today's examinations
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayTimestamp = Timestamp.fromDate(today);
+        const fetchStats = async () => {
+            try {
+                // Dalam skenario sebenarnya, ini mungkin 1 endpoint: api.get('/dashboard/stats')
+                const patients = await api.get('/patients');
+                setTotalPatients(patients.length || 0);
 
-        const examinationsQuery = query(
-            collection(db, "examinations"),
-            where("createdAt", ">=", todayTimestamp)
-        );
-        const unsubscribeExaminations = onSnapshot(examinationsQuery, (snapshot) => {
-            setTodayExaminations(snapshot.size);
-        });
+                const exams = await api.get('/examinations/today');
+                setTodayExaminations(exams.length || 0);
 
-        // Fetch medicine count
-        const medicinesQuery = query(collection(db, "medicines"));
-        const unsubscribeMedicines = onSnapshot(medicinesQuery, (snapshot) => {
-            setMedicineStock(snapshot.size);
-        });
-
-        return () => {
-            unsubscribePatients();
-            unsubscribeExaminations();
-            unsubscribeMedicines();
+                const medicines = await api.get('/medicines');
+                setMedicineStock(medicines.length || 0);
+            } catch (e) {
+                console.error("Gagal mengambil data dashboard", e);
+            }
         };
-    }, []);
+
+        fetchStats();
+    }, [user]);
 
     return (
         <div className="space-y-6 pb-20">
@@ -82,22 +73,22 @@ function Dashboard() {
                     className="group glass-card p-8 rounded-2xl relative overflow-hidden"
                 >
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <svg className="w-24 h-24 text-teal-500 transform rotate-12" fill="currentColor" viewBox="0 0 24 24"><path d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" /></svg>
+                        <svg className="w-24 h-24 text-secondary-500 transform rotate-12" fill="currentColor" viewBox="0 0 24 24"><path d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" /></svg>
                     </div>
                     <div className="flex items-start gap-4 relative z-10">
-                        <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-teal-400 to-teal-600 rounded-2xl flex items-center justify-center text-white shadow-glow group-hover:scale-110 transition-transform duration-300">
+                        <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-secondary-400 to-secondary-600 rounded-2xl flex items-center justify-center text-white shadow-glow group-hover:scale-110 transition-transform duration-300">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
                             </svg>
                         </div>
                         <div className="flex-1">
-                            <h2 className="text-xl font-bold text-gray-900 dark:text-white group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white group-hover:text-secondary-600 dark:group-hover:text-secondary-400 transition-colors">
                                 Pemeriksaan
                             </h2>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                                 Lihat daftar pasien di poli pemeriksaan dan lakukan pemeriksaan
                             </p>
-                            <div className="mt-4 inline-flex items-center text-sm font-medium text-teal-600 dark:text-teal-400 group-hover:gap-2 transition-all">
+                            <div className="mt-4 inline-flex items-center text-sm font-medium text-secondary-600 dark:text-secondary-400 group-hover:gap-2 transition-all">
                                 Buka Pemeriksaan
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />

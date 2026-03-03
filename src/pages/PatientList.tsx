@@ -1,16 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-  collection,
-  query,
-  onSnapshot,
-  orderBy,
-  deleteDoc,
-  doc,
-  setDoc,
-  addDoc,
-  serverTimestamp
-} from 'firebase/firestore';
-import { db, Timestamp } from '../firebaseConfig';
+import { useState, useEffect, useMemo } from 'react';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { Patient } from '../types';
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -25,37 +15,35 @@ function PatientList() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     setLoading(true);
-    // Query sorted by createdAt descending (newest first)
-    const q = query(collection(db, "patients"), orderBy("createdAt", "desc"));
+    if (!user) {
+        setLoading(false);
+        return;
+    }
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const patientsData: Patient[] = [];
-      querySnapshot.forEach((doc) => {
-        patientsData.push({ id: doc.id, ...doc.data() } as Patient);
-      });
-      setPatients(patientsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching patients: ", error);
-      setLoading(false);
-      // Only show error for real permission issues
-      if (error.code === 'permission-denied') {
-        toast.error("Tidak memiliki izin untuk mengakses data pasien");
-      } else {
-        toast.error("Gagal memuat data pasien");
-      }
-    });
+    const fetchPatients = async () => {
+        try {
+            const data = await api.get('/patients');
+            setPatients(Array.isArray(data) ? data : []);
+        } catch (e) {
+            console.error("Error fetching patients: ", e);
+            toast.error("Gagal memuat data pasien");
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    return () => unsubscribe();
-  }, []);
+    fetchPatients();
+  }, [user]);
 
   const handleDelete = async (patientId: string, patientName: string) => {
     if (window.confirm(`Apakah Anda yakin ingin menghapus data pasien ${patientName}?`)) {
       try {
-        await deleteDoc(doc(db, "patients", patientId));
+        await api.delete(`/patients/${patientId}`);
+        setPatients(prev => prev.filter(p => p.id !== patientId));
         toast.success(`Data pasien ${patientName} berhasil dihapus.`);
       } catch (error) {
         console.error("Error deleting patient: ", error);
@@ -67,28 +55,26 @@ function PatientList() {
   const handleAddToPoli = async (patientId: string, patientName: string) => {
     if (window.confirm(`Tambahkan ${patientName} ke poli Pemeriksaan?`)) {
       try {
-        const patientRef = doc(db, "patients", patientId);
-        await setDoc(patientRef, {
+        await api.put(`/patients/${patientId}`, {
           poli: "Pemeriksaan",
-          updatedAt: Timestamp.now()
-        }, { merge: true });
+          updatedAt: new Date().toISOString()
+        });
 
         // Kirim Notifikasi ke Pemeriksa
         try {
-          await addDoc(collection(db, "notifications"), {
+          await api.post('/notifications', {
              type: 'NEW_PATIENT',
              patientId: patientId,
              patientName: patientName,
              message: `Pasien: ${patientName} dikirim ke antrian pemeriksaan.`,
              read: false,
-             createdAt: serverTimestamp(),
-             toRole: 'pemeriksa'
+             createdAt: new Date().toISOString(),
+             toRole: 'pemeriksa',
+             clinicId: user?.uid
           });
         } catch (error) {
           console.error("Gagal kirim notif:", error);
         }
-
-        // toast.success removed as per request to avoid double notifications
 
       } catch (error) {
         console.error("Error updating patient: ", error);
@@ -203,11 +189,20 @@ function PatientList() {
                             {patient.name.charAt(0).toUpperCase()}
                           </div>
                           <div className="ml-4">
-                            <div className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-primary-700 dark:group-hover:text-primary-400 transition-colors">
-                              {patient.name}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-primary-700 dark:group-hover:text-primary-400 transition-colors">
+                                {patient.name}
+                              </span>
+                              {patient.allergies && (
+                                <span className="flex-shrink-0 inline-flex items-center justify-center p-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg animate-pulse" title={`Alergi: ${patient.allergies}`}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                                  </svg>
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              Terdaftar: {patient.createdAt ? format(patient.createdAt.toDate(), 'dd MMM yyyy', { locale: localeId }) : '-'}
+                              Terdaftar: {patient.createdAt ? format(new Date(patient.createdAt), 'dd MMM yyyy', { locale: localeId }) : '-'}
                             </div>
                           </div>
                         </div>

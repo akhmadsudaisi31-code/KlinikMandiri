@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+import { api } from '../api';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -18,16 +17,12 @@ function ForgotPassword() {
         setError(null);
         setSuccessMessage(null);
         try {
-            await sendPasswordResetEmail(auth, data.email);
+            await api.post('/auth/reset-password', { email: data.email });
             setSuccessMessage(`Email reset password telah dikirim ke ${data.email}. Silakan cek kotak masuk atau folder spam Anda.`);
             toast.success('Email reset terkirim!');
         } catch (err: any) {
-            console.error("Forgot Password Error:", err.code);
-            if (err.code === 'auth/user-not-found') {
-                setError('Email tidak terdaftar.');
-            } else {
-                setError('Gagal mengirim email reset. Coba lagi nanti.');
-            }
+            console.error("Forgot Password Error:", err);
+            setError('Gagal mengirim email reset. Coba lagi nanti.');
             toast.error('Gagal memproses permintaan.');
         }
     };

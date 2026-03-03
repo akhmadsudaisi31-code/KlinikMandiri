@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getDocs, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { Examination } from '../types';
 import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear, getDate, getMonth, getHours } from 'date-fns';
 import { formatRupiah } from '../utils/format';
@@ -47,6 +47,7 @@ function Reports() {
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchReport();
@@ -72,36 +73,31 @@ function Reports() {
       end = endOfYear(dateObj);
     }
 
-    try {
-      const q = query(
-        collection(db, dataSource),
-        where('createdAt', '>=', Timestamp.fromDate(start)),
-        where('createdAt', '<=', Timestamp.fromDate(end)),
-        orderBy('createdAt', 'desc')
-      );
+    if (!user) return;
 
-      const snapshot = await getDocs(q);
+    try {
+      const startIso = start.toISOString();
+      const endIso = end.toISOString();
+      // The worker will need to filter by clinicId and dates, for dummy we pass it
+      const response = await api.get(`/${dataSource}?startDate=${startIso}&endDate=${endIso}`);
+      
+      const rawData = response || [];
 
       if (dataSource === 'examinations' || dataSource === 'visits') {
-        const data = snapshot.docs.map(doc => {
-           const d = doc.data();
+        const data = rawData.map((d: any) => {
            return { 
-               id: doc.id, 
                ...d,
                // Normalize fields for report consistency
                diagnosa: d.diagnosa || d.diagnosis,
                cost: d.cost || d.biaya,
-               medicines: d.medicines || [], // Visits might not have medicines array structured same way? PatientDetail uses 'therapy' string usually?
-               // PatientDetail saves 'therapy' string. Examination saves 'medicines' array.
-               // We might need to display 'therapy' in the table if medicines is empty.
+               medicines: d.medicines || [],
                therapy: d.therapy 
            } as any;
         });
         setExaminations(data);
         setPatients([]);
       } else {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setPatients(data);
+        setPatients(rawData);
         setExaminations([]);
       }
 
@@ -116,7 +112,7 @@ function Reports() {
     if (!window.confirm('Apakah Anda yakin ingin menghapus data ini?')) return;
 
     try {
-      await deleteDoc(doc(db, dataSource, id));
+      await api.delete(`/${dataSource}/${id}`);
       toast.success('Data berhasil dihapus');
       
       // Update local state
@@ -186,7 +182,8 @@ function Reports() {
       const dayCounts = new Array(daysInMonth).fill(0);
 
       examinations.forEach(v => {
-        const day = getDate(v.createdAt.toDate());
+        const d = v.createdAt ? new Date(v.createdAt) : new Date();
+        const day = getDate(d);
         dayCounts[day - 1]++;
       });
       trendValues = dayCounts;
@@ -198,7 +195,8 @@ function Reports() {
       const monthCounts = new Array(12).fill(0);
 
       examinations.forEach(v => {
-        const m = getMonth(v.createdAt.toDate());
+        const d = v.createdAt ? new Date(v.createdAt) : new Date();
+        const m = getMonth(d);
         monthCounts[m]++;
       });
       trendValues = monthCounts;
@@ -207,7 +205,8 @@ function Reports() {
       trendLabels = ['00', '03', '06', '09', '12', '15', '18', '21']; // Simplified buckets
       const hourCounts = new Array(8).fill(0);
       examinations.forEach(v => {
-        const h = getHours(v.createdAt.toDate());
+        const d = v.createdAt ? new Date(v.createdAt) : new Date();
+        const h = getHours(d);
         const bucket = Math.floor(h / 3);
         if (bucket < 8) hourCounts[bucket]++;
       });
@@ -386,7 +385,7 @@ function Reports() {
                     currentTableData.map((examination: any) => (
                       <tr key={examination.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {format(examination.createdAt.toDate(), 'dd/MM/yyyy HH:mm', { locale: localeId })}
+                          {examination.createdAt ? format(new Date(examination.createdAt), 'dd/MM/yyyy HH:mm', { locale: localeId }) : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded font-mono text-xs border border-gray-200 dark:border-gray-600">{examination.patientRm}</span>
@@ -419,7 +418,7 @@ function Reports() {
                     currentTableData.map((patient: any) => (
                       <tr key={patient.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {format(patient.createdAt.toDate(), 'dd/MM/yyyy HH:mm', { locale: localeId })}
+                          {patient.createdAt ? format(new Date(patient.createdAt), 'dd/MM/yyyy HH:mm', { locale: localeId }) : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded font-mono text-xs border border-gray-200 dark:border-gray-600">{patient.rm}</span>

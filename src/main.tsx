@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import './index.css'
 import App from './App'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
 import Dashboard from './pages/Dashboard'
 import PatientList from './pages/PatientList'
@@ -16,20 +17,43 @@ import MedicineForm from './pages/MedicineForm'
 import ExaminationList from './pages/ExaminationList'
 import ExaminationForm from './pages/ExaminationForm'
 import Reports from './pages/Reports'
+import ActivationPending from './pages/ActivationPending'
+import AdminDashboard from './pages/AdminDashboard'
 import ProtectedRoute from './components/ProtectedRoute'
 import NotFound from './pages/NotFound'
 // IMPORT PENTING: Memanggil ThemeProvider
 import { ThemeProvider } from './context/ThemeContext'
+import { AuthProvider } from './context/AuthContext'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {/* PEMBUNGKUS PENTING: ThemeProvider harus membungkus seluruh aplikasi */}
     <ThemeProvider>
-      <BrowserRouter>
-        <App>
-          <Routes>
+      <AuthProvider>
+        <BrowserRouter>
+          <App>
+            <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
             <Route path="/lupa-password" element={<ForgotPassword />} />
+
+            <Route 
+                path="/activation-pending" 
+                element={
+                    <ProtectedRoute>
+                        <ActivationPending />
+                    </ProtectedRoute>
+                } 
+            />
+
+            <Route 
+                path="/admin" 
+                element={
+                    <ProtectedRoute>
+                        <AdminDashboard />
+                    </ProtectedRoute>
+                } 
+            />
 
             <Route
               path="/"
@@ -134,35 +158,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           </Routes>
 
           <Toaster 
-            position="top-center" // Fallback
-            containerStyle={{
-              top: 0,
-              left: 0,
-              bottom: 0,
-              right: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              pointerEvents: 'none', // Allow clicking behind
-              zIndex: 99999, // Ensure on top
-            }}
+            position="top-center"
             toastOptions={{
-              className: '',
-              style: {
-                background: 'transparent',
-                boxShadow: 'none',
-                border: 'none',
-                padding: 0,
-                color: 'inherit',
-                maxWidth: '100%',
-                width: 'auto',
-                pointerEvents: 'auto',
-              },
-              duration: Infinity,
+              duration: 3000,
             }}
           />
-        </App>
-      </BrowserRouter>
+          </App>
+        </BrowserRouter>
+      </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>,
 )

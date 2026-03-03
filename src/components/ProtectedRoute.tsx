@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../App';
+import { useAuth } from '../context/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -15,7 +15,6 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
   const location = useLocation();
 
   if (loading) {
-    // Tampilkan loading jika status auth belum selesai dicek
     return (
       <div className="flex items-center justify-center min-h-screen">
         Memeriksa autentikasi...
@@ -24,12 +23,15 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!user) {
-    // Jika user tidak login, redirect ke halaman login
-    // Simpan lokasi asal agar bisa kembali setelah login
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Jika user login, tampilkan children (halaman yang dituju)
+  // Redirect to activation pending if user is not active and not an admin
+  if (user.status === 'pending' && user.isAdmin !== 1 && location.pathname !== '/activation-pending') {
+      return <Navigate to="/activation-pending" replace />;
+  }
+
+  // If user is already active or is admin, or already on activation pending
   return <>{children}</>;
 }
 
