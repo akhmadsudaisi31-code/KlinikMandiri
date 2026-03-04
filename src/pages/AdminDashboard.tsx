@@ -175,6 +175,116 @@ function AdminDashboard() {
   if (authLoading) return null;
   if (!user || user.isAdmin !== 1) return <Navigate to="/" replace />;
 
+  const renderActionButtons = (clinic: ClinicEntry) => (
+      <div className="flex items-center justify-end gap-2 flex-wrap sm:flex-nowrap">
+          {/* Activity Stats Icon */}
+          <button
+              onClick={() => handleActivityClick(clinic)}
+              title="Statistik Aktivitas Klinik"
+              className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 rounded-lg transition-colors"
+          >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+          </button>
+
+          {/* Preview Account Icon */}
+          <button
+              onClick={() => handleImpersonate(clinic.id, clinic.name)}
+              title="Preview Akun (Masuk ke Klinik)"
+              className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/40 rounded-lg transition-colors"
+          >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+          </button>
+
+          {/* Edit Button */}
+          <button
+              onClick={() => handleEditClick(clinic)}
+              title="Edit Profil/Paket Klinik"
+              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded-lg transition-colors"
+          >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+              </svg>
+          </button>
+
+          {/* Demo Expiration Actions */}
+          {clinic.status === 'active' && (
+            <>
+              <button
+                  onClick={() => handleDemoValidity(clinic.id, clinic.name, '+3 days', 'Demo Peringatan')}
+                  title="Demo Peringatan (Set 3 Hari)"
+                  className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/40 rounded-lg transition-colors"
+              >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+              </button>
+              <button
+                  onClick={() => handleDemoValidity(clinic.id, clinic.name, '-1 day', 'Akhiri Langganan')}
+                  title="Akhiri Langganan (Set Expired)"
+                  className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/40 rounded-lg transition-colors"
+              >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+              </button>
+            </>
+          )}
+
+          {/* Delete Button */}
+          <button
+              onClick={() => handleDelete(clinic.id, clinic.name)}
+              title="Hapus Klinik"
+              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/40 rounded-lg transition-colors"
+          >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+          </button>
+
+          {/* Pending State */}
+          {clinic.status === 'pending' && (
+              <>
+                  <button
+                      onClick={() => handleReject(clinic.id)}
+                      title="Tolak Aktivasi"
+                      className="bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-black px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center whitespace-nowrap"
+                  >
+                      TOLAK
+                  </button>
+                  <button
+                      onClick={() => handleActivate(clinic.id)}
+                      className="bg-primary-600 hover:bg-primary-700 text-white text-[10px] font-black px-4 py-2 rounded-xl transition-all shadow-lg shadow-primary-500/10 uppercase tracking-widest whitespace-nowrap"
+                  >
+                      Activate
+                  </button>
+              </>
+          )}
+          
+          {/* Active State */}
+          {clinic.status === 'active' && (
+              <span className="text-green-500 bg-green-50 dark:bg-green-900/30 p-1.5 rounded-full inline-flex items-center justify-center ml-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+              </span>
+          )}
+
+          {/* Rejected State */}
+          {clinic.status === 'rejected' && (
+              <span className="text-red-500 bg-red-50 dark:bg-red-900/30 p-1.5 rounded-full inline-flex items-center justify-center ml-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+              </span>
+          )}
+      </div>
+  );
+
   return (
     <div className="space-y-6 pb-20 max-w-6xl mx-auto">
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-8 rounded-3xl text-white shadow-2xl">
@@ -186,7 +296,8 @@ function AdminDashboard() {
         {loading ? (
              <div className="text-center py-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Loading Data Klinik...</div>
         ) : (
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-800">
@@ -228,113 +339,7 @@ function AdminDashboard() {
                         </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2 flex-wrap sm:flex-nowrap">
-                            {/* Activity Stats Icon */}
-                            <button
-                                onClick={() => handleActivityClick(clinic)}
-                                title="Statistik Aktivitas Klinik"
-                                className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 rounded-lg transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                                </svg>
-                            </button>
-
-                            {/* Preview Account Icon */}
-                            <button
-                                onClick={() => handleImpersonate(clinic.id, clinic.name)}
-                                title="Preview Akun (Masuk ke Klinik)"
-                                className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/40 rounded-lg transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                            </button>
-
-                            {/* Edit Button */}
-                            <button
-                                onClick={() => handleEditClick(clinic)}
-                                title="Edit Profil/Paket Klinik"
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded-lg transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
-                                </svg>
-                            </button>
-
-                            {/* Demo Expiration Actions */}
-                            {clinic.status === 'active' && (
-                              <>
-                                <button
-                                    onClick={() => handleDemoValidity(clinic.id, clinic.name, '+3 days', 'Demo Peringatan')}
-                                    title="Demo Peringatan (Set 3 Hari)"
-                                    className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/40 rounded-lg transition-colors"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                    </svg>
-                                </button>
-                                <button
-                                    onClick={() => handleDemoValidity(clinic.id, clinic.name, '-1 day', 'Akhiri Langganan')}
-                                    title="Akhiri Langganan (Set Expired)"
-                                    className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/40 rounded-lg transition-colors"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                </button>
-                              </>
-                            )}
-
-                            {/* Delete Button */}
-                            <button
-                                onClick={() => handleDelete(clinic.id, clinic.name)}
-                                title="Hapus Klinik"
-                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/40 rounded-lg transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                                </svg>
-                            </button>
-
-                            {/* Pending State */}
-                            {clinic.status === 'pending' && (
-                                <>
-                                    <button
-                                        onClick={() => handleReject(clinic.id)}
-                                        title="Tolak Aktivasi"
-                                        className="bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-black px-3 py-2 rounded-xl transition-all shadow-sm flex items-center justify-center whitespace-nowrap"
-                                    >
-                                        TOLAK
-                                    </button>
-                                    <button
-                                        onClick={() => handleActivate(clinic.id)}
-                                        className="bg-primary-600 hover:bg-primary-700 text-white text-[10px] font-black px-4 py-2 rounded-xl transition-all shadow-lg shadow-primary-500/10 uppercase tracking-widest whitespace-nowrap"
-                                    >
-                                        Activate
-                                    </button>
-                                </>
-                            )}
-                            
-                            {/* Active State */}
-                            {clinic.status === 'active' && (
-                                <span className="text-green-500 bg-green-50 dark:bg-green-900/30 p-1.5 rounded-full inline-flex items-center justify-center ml-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                    </svg>
-                                </span>
-                            )}
-
-                            {/* Rejected State */}
-                            {clinic.status === 'rejected' && (
-                                <span className="text-red-500 bg-red-50 dark:bg-red-900/30 p-1.5 rounded-full inline-flex items-center justify-center ml-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </span>
-                            )}
-                        </div>
+                        {renderActionButtons(clinic)}
                     </td>
                   </tr>
                 ))}
@@ -345,6 +350,57 @@ function AdminDashboard() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-4">
+            {clinics.map((clinic) => (
+                <div key={clinic.id} className="bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col gap-4 relative overflow-hidden">
+                    <div className={`absolute top-0 right-0 w-2 h-full ${
+                        clinic.status === 'active' ? 'bg-green-500' :
+                        clinic.status === 'rejected' ? 'bg-red-500' :
+                        'bg-yellow-500'
+                    }`}></div>
+                    
+                    <div>
+                        <div className="flex justify-between items-start mr-4">
+                            <div>
+                                <h3 className="text-lg font-black text-gray-900 dark:text-white uppercase tracking-tight leading-tight">{clinic.name}</h3>
+                                <p className="text-xs text-primary-600 font-bold mb-1">{clinic.phone}</p>
+                            </div>
+                            <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest shrink-0 ${
+                                clinic.status === 'active' 
+                                ? 'bg-green-100 text-green-600' 
+                                : clinic.status === 'rejected'
+                                ? 'bg-red-100 text-red-600'
+                                : 'bg-yellow-100 text-yellow-600'
+                            }`}>
+                                {clinic.status}
+                            </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500">{clinic.email}</p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-black bg-primary-50 dark:bg-primary-900/20 text-primary-600 px-3 py-1 rounded-full uppercase tracking-widest border border-primary-100 dark:border-primary-900/50">
+                            Paket: {SUBSCRIPTION_PLANS.find(p => p.id === clinic.subscriptionPlan)?.name || clinic.subscriptionPlan}
+                        </span>
+                        <span className="text-[10px] font-black bg-gray-50 dark:bg-gray-800 text-gray-500 px-3 py-1 rounded-full uppercase tracking-widest">
+                            Join: {format(new Date(clinic.createdAt), 'dd MMM yyyy', { locale: localeId })}
+                        </span>
+                    </div>
+
+                    <div className="pt-3 mt-1 border-t border-gray-100 dark:border-gray-800 flex justify-end">
+                        {renderActionButtons(clinic)}
+                    </div>
+                </div>
+            ))}
+            
+            {clinics.length === 0 && (
+                <div className="text-center py-20 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-gray-400 font-black uppercase tracking-widest">
+                    Tidak Ada Klinik Terdaftar
+                </div>
+            )}
           </div>
         )}
       </div>
