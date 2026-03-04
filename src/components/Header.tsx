@@ -138,7 +138,7 @@ function Header() {
     };
 
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 15000); // Poll setiap 15 detik
+    const interval = setInterval(fetchNotifications, 60000); // Poll setiap 60 detik
 
     return () => clearInterval(interval);
   }, [user]);

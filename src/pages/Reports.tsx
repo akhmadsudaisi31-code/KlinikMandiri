@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Examination } from '../types';
@@ -33,7 +34,7 @@ ChartJS.register(
 );
 
 type ReportType = 'daily' | 'monthly' | 'yearly';
-type DataSource = 'examinations' | 'patients' | 'visits';
+type DataSource = 'examinations' | 'patients' | 'visits' | 'anc' | 'persalinan';
 const ITEMS_PER_PAGE = 20;
 
 function Reports() {
@@ -51,7 +52,7 @@ function Reports() {
 
   useEffect(() => {
     fetchReport();
-  }, [reportType, selectedDate, dataSource]);
+  }, [reportType, selectedDate, dataSource, user]);
 
   const fetchReport = async () => {
     setLoading(true);
@@ -78,15 +79,36 @@ function Reports() {
     try {
       const startIso = start.toISOString();
       const endIso = end.toISOString();
-      // The worker will need to filter by clinicId and dates, for dummy we pass it
-      const response = await api.get(`/${dataSource}?startDate=${startIso}&endDate=${endIso}`);
+      const endpoint = (dataSource === 'anc' || dataSource === 'persalinan') ? 'examinations' : dataSource;
+      const response = await api.get(`/${endpoint}?startDate=${startIso}&endDate=${endIso}`);
       
-      const rawData = response || [];
+      let rawData = response || [];
 
-      if (dataSource === 'examinations' || dataSource === 'visits') {
+      if (dataSource === 'anc') {
+        rawData = rawData.filter((d: any) => {
+          if (!d.extendedData_json) return false;
+          try {
+            const ext = typeof d.extendedData_json === 'string' ? JSON.parse(d.extendedData_json) : d.extendedData_json;
+            return ext.category === 'Bumil' || ext.hpht || ext.lila;
+          } catch(e) { return false; }
+        });
+      } else if (dataSource === 'persalinan') {
+        rawData = rawData.filter((d: any) => {
+          if (!d.extendedData_json) return false;
+          try {
+            const ext = typeof d.extendedData_json === 'string' ? JSON.parse(d.extendedData_json) : d.extendedData_json;
+            return ext.category === 'Persalinan' || ext.isPersalinan === true;
+          } catch(e) { return false; }
+        });
+      }
+
+      if (dataSource === 'examinations' || dataSource === 'visits' || dataSource === 'anc' || dataSource === 'persalinan') {
         const data = rawData.map((d: any) => {
+           let ext = {};
+           try { ext = d.extendedData_json ? (typeof d.extendedData_json === 'string' ? JSON.parse(d.extendedData_json) : d.extendedData_json) : {}; } catch(e) {}
            return { 
                ...d,
+               ...ext,
                // Normalize fields for report consistency
                diagnosa: d.diagnosa || d.diagnosis,
                cost: d.cost || d.biaya,
@@ -125,6 +147,76 @@ function Reports() {
       console.error("Error deleting document:", error);
       toast.error('Gagal menghapus data');
     }
+  };
+
+  const handleExportToExcel = () => {
+    if (currentData.length === 0) return;
+
+    let exportData: any[] = [];
+    
+    if (dataSource === 'anc') {
+      exportData = currentData.map((d: any, index: number) => ({
+        'NO': index + 1,
+        'NAMA BUMIL': d.patientName || '-',
+        'NAMA SUAMI': d.namaSuami || '-',
+        'UMUR': d.ageDisplay || '-',
+        'ALAMAT': d.address || '-',
+        'HAMIL KE': d.hamilKe || '-',
+        'UK': d.usiaKehamilan || '-',
+        'ANAK TERKECIL': d.anakTerkecil || '-',
+        'HPHT': d.hpht || '-',
+        'HPL': d.hpl || '-',
+        'TANGGAL KUNJUNGAN K1': d.kunjunganAnc === 'K1' ? (d.date ? format(new Date(d.date), 'dd/MM/yyyy') : '-') : '-',
+        'TANGGAL KUNJUNGAN K4': d.kunjunganAnc === 'K4' ? (d.date ? format(new Date(d.date), 'dd/MM/yyyy') : '-') : '-',
+        'TB': d.tb || '-',
+        'BB': d.bb || '-',
+        'TD': d.tensi || '-',
+        'STATUS TT': d.statusTT || '-',
+        'LILA': d.lila || '-',
+        'SKOR': d.skor || '-',
+        'USG': d.usg || '-'
+      }));
+    } else if (dataSource === 'persalinan') {
+      exportData = currentData.map((d: any, index: number) => ({
+         'NO': index + 1,
+         'NAMA BULIN': d.patientName || '-',
+         'NAMA SUAMI': d.namaSuami || '-',
+         'UMUR': d.ageDisplay || '-',
+         'ALAMAT': d.address || '-',
+         'HAMIL KE': d.hamilKe || '-',
+         'UK': d.usiaKehamilan || '-',
+         'JENIS PERSALINAN': d.jenisPersalinan || '-',
+         'PENOLONG': d.penolong || '-',
+         'TEMPAT': d.tempat || '-',
+         'JENIS KELAMIN': d.jenisKelamin || '-',
+         'TGL PARTUS': d.tglPartus ? format(new Date(d.tglPartus), 'dd/MM/yyyy') : '-',
+         'JAM PARTUS': d.jamPartus || '-',
+         'AS': d.as || '-',
+         'BBL': d.bbl || '-',
+         'PB': d.pb || '-',
+         'LIKA': d.lika || '-',
+         'VIT K': d.vitK || '-',
+         'HB 0': d.hb0 || '-'
+      }));
+    } else {
+       // Regular Export for others
+       exportData = currentData.map((d: any) => {
+         const out: any = { 
+            'ID': d.id || '-',
+            'Waktu': d.createdAt ? format(new Date(d.createdAt), 'dd/MM/yyyy HH:mm') : '-',
+         };
+         if (d.patientRm || d.rm) out['No. RM'] = d.patientRm || d.rm;
+         if (d.name || d.patientName) out['Nama'] = d.name || d.patientName;
+         if (d.diagnosa || d.diagnosis) out['Diagnosa'] = d.diagnosa || d.diagnosis;
+         
+         return out;
+       });
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Laporan ${dataSource}`);
+    XLSX.writeFile(wb, `Laporan_${dataSource}_${selectedDate}.xlsx`);
   };
 
   // --- CHART LOGIC ---
@@ -231,7 +323,7 @@ function Reports() {
   }, [examinations, reportType, selectedDate]);
 
   // --- PAGINATION LOGIC ---
-  const currentData = dataSource === 'examinations' ? examinations : patients;
+  const currentData = (dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') ? examinations : patients;
   const totalPages = Math.ceil(currentData.length / ITEMS_PER_PAGE);
   const currentTableData = currentData.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -259,6 +351,8 @@ function Reports() {
                 <option value="examinations">Laporan Pemeriksaan (Poli)</option>
                 <option value="visits">Laporan Kunjungan (Detail Pasien)</option>
                 <option value="patients">Laporan Pendaftaran</option>
+                <option value="anc">Laporan Pelayanan ANC</option>
+                <option value="persalinan">Laporan Persalinan</option>
               </select>
             </div>
           </div>
@@ -298,12 +392,23 @@ function Reports() {
               <p className="text-3xl font-bold mt-1">{currentData.length}</p>
             </div>
 
-            {dataSource === 'examinations' && (
+            {(dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') && (
               <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-2xl text-white shadow-lg shadow-green-200 dark:shadow-none flex md:inline-flex flex-col md:items-end min-w-[150px] ml-4 mt-2 md:mt-0">
                 <p className="text-xs font-bold uppercase opacity-80">Total Pendapatan</p>
                 <p className="text-xl font-bold mt-1">{formatRupiah(currentData.reduce((acc: number, curr: any) => acc + (Number(curr.cost) || 0), 0))}</p>
               </div>
             )}
+            
+            <button
+              onClick={handleExportToExcel}
+              disabled={currentData.length === 0}
+              className="mt-4 md:mt-0 ml-4 px-6 py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-bold transition-all disabled:opacity-50 flex md:inline-flex items-center justify-center gap-2 shadow-lg shadow-purple-200 dark:shadow-none"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+              Export Excel
+            </button>
           </div>
         </div>
 
@@ -351,25 +456,78 @@ function Reports() {
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Waktu</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">No. RM</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pasien</th>
-                    {dataSource === 'examinations' ? (
-                      <>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Diagnosa</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Terapi</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Biaya</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aksi</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Umur</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aksi</th>
-                      </>
-                    )}
-                  </tr>
+                  {dataSource === 'anc' ? (
+                    <>
+                      <tr>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">NO</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">NAMA BUMIL</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">NAMA SUAMI</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">UMUR</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">ALAMAT</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">HAMIL KE</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">UK</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">ANAK TERKECIL</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">HPHT</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">HPL</th>
+                        <th colSpan={2} className="px-4 py-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">TANGGAL KUNJUNGAN</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">TB</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">BB</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">TD</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">STATUS TT</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">LILA</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">SKOR</th>
+                        <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">USG</th>
+                        <th rowSpan={2} className="px-4 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800 sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                      </tr>
+                      <tr>
+                        <th className="px-4 py-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-800">K1</th>
+                        <th className="px-4 py-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-800">K4</th>
+                      </tr>
+                    </>
+                  ) : dataSource === 'persalinan' ? (
+                    <tr>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">NO</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">NAMA BULIN</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">NAMA SUAMI</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">UMUR</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">ALAMAT</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">HAMIL KE</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">UK</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">JENIS PERSALINAN</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">PENOLONG</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">TEMPAT</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">JENIS KELAMIN</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">TGL PARTUS</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">JAM PARTUS</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">AS</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">BBL</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">PB</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">LIKA</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">VIT K</th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">HB 0</th>
+                      <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Waktu</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">No. RM</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pasien</th>
+                      {dataSource === 'examinations' ? (
+                        <>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Diagnosa</th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Terapi</th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Biaya</th>
+                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Umur</th>
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
+                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                        </>
+                      )}
+                    </tr>
+                  )}
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                   {currentData.length === 0 ? (
@@ -410,6 +568,74 @@ function Reports() {
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : dataSource === 'anc' ? (
+                    currentTableData.map((examination: any, index: number) => (
+                      <tr key={examination.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{index + 1}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{examination.patientName || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.namaSuami || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.ageDisplay || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.address || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.hamilKe || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.usiaKehamilan || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.anakTerkecil || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.hpht || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.hpl || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">
+                          {examination.kunjunganAnc === 'K1' ? (examination.createdAt ? format(new Date(examination.createdAt), 'dd/MM/yyyy') : '-') : '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">
+                          {examination.kunjunganAnc === 'K4' ? (examination.createdAt ? format(new Date(examination.createdAt), 'dd/MM/yyyy') : '-') : '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.tb || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.bb || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.tensi || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.statusTT || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.lila || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.skor || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.usg || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 sticky right-0 bg-white dark:bg-dark-surface p-2 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)]">
+                          <button
+                            onClick={() => handleDelete(examination.id)}
+                            className="bg-white border rounded text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          >
+                            Hapus
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : dataSource === 'persalinan' ? (
+                    currentTableData.map((examination: any, index: number) => (
+                      <tr key={examination.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{index + 1}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{examination.patientName || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.namaSuami || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.ageDisplay || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.address || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.hamilKe || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.usiaKehamilan || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.jenisPersalinan || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.penolong || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.tempat || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.jenisKelamin || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.tglPartus ? format(new Date(examination.tglPartus), 'dd/MM/yyyy') : '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.jamPartus || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.as || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.bbl || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.pb || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.lika || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.vitK || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.hb0 || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          <button
+                            onClick={() => handleDelete(examination.id)}
+                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                          >
+                            Hapus
                           </button>
                         </td>
                       </tr>

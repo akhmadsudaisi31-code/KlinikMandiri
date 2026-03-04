@@ -59,6 +59,7 @@ function PatientForm() {
     resolver: zodResolver(schema),
     defaultValues: {
       name: '',
+      namaSuami: '',
       address: '',
       dob: '',
       ageYears: '',
@@ -103,6 +104,7 @@ function PatientForm() {
           if (data) {
             setValue('manualRm', data.rm);
             setValue('name', data.name);
+            setValue('namaSuami', data.namaSuami || '');
             setValue('gender', data.gender);
             setValue('category', data.category);
             setValue('address', data.address);
@@ -174,6 +176,7 @@ function PatientForm() {
       const commonData = {
         clinicId: user.uid, // ADDED: SaaS Multi-tenancy
         name: data.name,
+        namaSuami: data.namaSuami,
         gender: data.gender,
         category: data.category,
         address: data.address,
@@ -342,15 +345,26 @@ function PatientForm() {
             )}
           </div>
 
-          {/* Nama */}
-          <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Lengkap</label>
-            <input
-              {...register('name')}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
-              placeholder="Masukkan nama pasien"
-            />
-            {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
+          {/* Nama and Suami Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Lengkap</label>
+              <input
+                {...register('name')}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                placeholder="Masukkan nama pasien"
+              />
+              {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Suami / Penanggung Jawab</label>
+              <input
+                {...register('namaSuami')}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
+                placeholder="Khusus Bumil/Anak (Opsional)"
+              />
+            </div>
           </div>
 
           {/* Kategori & Gender Row */}

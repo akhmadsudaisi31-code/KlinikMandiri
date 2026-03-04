@@ -5,6 +5,7 @@ import { jwt, sign, verify } from 'hono/jwt'
 type Bindings = {
   DB: D1Database
   JWT_SECRET: string
+  RESEND_API_KEY: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -23,9 +24,9 @@ app.post('/api/auth/register', async (c) => {
   
   try {
     await c.env.DB.prepare(
-      'INSERT INTO clinics (id, name, email, password, phone, subscriptionPlan, status, isAdmin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO clinics (id, name, email, password, phone, subscriptionPlan, status, isAdmin, clinicType) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
-    .bind(id, body.clinicName, body.email, body.password, body.phone, body.subscriptionPlan, 'pending', 0)
+    .bind(id, body.clinicName, body.email, body.password, body.phone, body.subscriptionPlan, 'pending', 0, body.clinicType || 'Bidan')
     .run()
 
     // Generate token so user can be logged in instantly
@@ -46,7 +47,8 @@ app.post('/api/auth/register', async (c) => {
             email: body.email,
             status: 'pending',
             isAdmin: 0,
-            subscriptionPlan: body.subscriptionPlan
+            subscriptionPlan: body.subscriptionPlan,
+            clinicType: body.clinicType || 'Bidan'
         }
     })
   } catch (e: any) {
@@ -86,7 +88,9 @@ app.post('/api/auth/login', async (c) => {
       email: user.email, 
       displayName: user.name,
       status: user.status,
-      isAdmin: user.isAdmin
+      isAdmin: user.isAdmin,
+      clinicType: user.clinicType,
+      validUntil: user.validUntil
     } 
   })
 })
@@ -108,20 +112,187 @@ app.use('/api/*', async (c, next) => {
   const payload: any = c.get('jwtPayload')
   
   // Admin bypass status check for their own tools, or allow everyone to see /api/auth/me
-  if (path !== '/api/auth/me' && payload.status !== 'active' && payload.isAdmin !== 1) {
-      return c.json({ error: 'Akun Anda belum aktif. Silakan lakukan konfirmasi pembayaran.', status: payload.status }, 403)
+  if (path !== '/api/auth/me' && path !== '/api/auth/renew' && payload.isAdmin !== 1) {
+      const clinic: any = await c.env.DB.prepare('SELECT status, validUntil FROM clinics WHERE id = ?').bind(payload.uid).first();
+      
+      if (!clinic || clinic.status !== 'active') {
+          return c.json({ error: 'Akun Anda belum aktif atau telah ditangguhkan.', status: clinic?.status || 'inactive' }, 403)
+      }
+      
+      // Jika validUntil terlewat, tolak semua akses data medik
+      if (clinic.validUntil && new Date(clinic.validUntil).getTime() < Date.now()) {
+          return c.json({ error: 'Masa aktif langganan habis.', status: 'expired', validUntil: clinic.validUntil }, 403)
+      }
   }
   
   return next()
 })
+
+async function sendEmail(env: Bindings, to: string, subject: string, html: string) {
+  if (!env.RESEND_API_KEY) {
+     console.log("Email mocked (No RESEND_API_KEY):", to, subject);
+     return;
+  }
+  
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'Admin SatSet RM <onboarding@resend.dev>',
+        to,
+        subject,
+        html
+      })
+    });
+    const result: any = await res.json();
+    if (res.ok) {
+        console.log("Email sent successfully:", result.id);
+    } else {
+        console.error("Email send failed with Resend API Error:", result);
+    }
+  } catch(e) {
+    console.error("Email send network/parsing error:", e);
+  }
+}
+
+const getEmailTemplate = (type: 'success' | 'rejected', clinicName: string): string => {
+  const isSuccess = type === 'success';
+  const color = isSuccess ? '#0ea5e9' : '#f43f5e'; // Sky 500 for success/primary, Rose 500 for error
+  const title = isSuccess ? 'Aktivasi Akun Berhasil 🎉' : 'Aktivasi Akun Ditolak ⚠️';
+  const body = isSuccess 
+    ? `Selamat! Akun klinik <b>${clinicName}</b> telah berhasil diaktifkan. Anda sekarang dapat masuk (login) dan menikmati seluruh fitur unggulan aplikasi SatSet RM.`
+    : `Mohon maaf, aktivasi akun klinik <b>${clinicName}</b> saat ini tidak dapat kami setujui. Hal ini mungkin terjadi jika Anda belum mentransfer nominal yang sesuai atau bukti pembayaran tidak valid.`;
+  
+  const ctaText = isSuccess ? 'Masuk ke Dashboard' : 'Hubungi Dukungan CS (WA)';
+  const ctaLink = isSuccess ? 'https://satset-rm.pages.dev/login' : 'https://wa.me/6281234567890'; // Sesuaikan nomor WA support
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9; padding: 40px 20px;">
+          <tr>
+            <td align="center">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                
+                <!-- Header -->
+                <tr>
+                  <td align="center" style="padding: 40px 20px; background-color: ${color};">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: -0.5px; font-weight: 800;">SatSet RM</h1>
+                    <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px; font-weight: 500; letter-spacing: 1px;">SISTEM REKAM MEDIS DIGITAL</p>
+                  </td>
+                </tr>
+                
+                <!-- Body Content -->
+                <tr>
+                  <td style="padding: 40px 30px;">
+                    <h2 style="color: #0f172a; margin-top: 0; font-size: 22px; font-weight: 700;">${title}</h2>
+                    <p style="color: #475569; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+                      Halo <strong>${clinicName}</strong>,<br><br>
+                      ${body}
+                    </p>
+                    
+                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                      <tr>
+                        <td align="center">
+                          <a href="${ctaLink}" style="display: inline-block; padding: 14px 28px; background-color: ${color}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+                            ${ctaText}
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                
+                <!-- Footer -->
+                <tr>
+                  <td align="center" style="padding: 24px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
+                    <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
+                      &copy; ${new Date().getFullYear()} SatSet RM. Hak cipta dilindungi undang-undang.<br>
+                      Email ini dibuat otomatis, mohon tidak membalas ke alamat email ini.
+                    </p>
+                  </td>
+                </tr>
+                
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
+}
 
 // --- ADMIN ENDPOINTS ---
 app.get('/api/admin/clinics', async (c) => {
     const payload: any = c.get('jwtPayload')
     if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
     
-    const { results } = await c.env.DB.prepare('SELECT id, name, email, phone, status, subscriptionPlan, createdAt FROM clinics WHERE isAdmin = 0 ORDER BY createdAt DESC').all()
+    const { results } = await c.env.DB.prepare('SELECT id, name, email, phone, status, subscriptionPlan, validUntil, createdAt FROM clinics WHERE isAdmin = 0 ORDER BY createdAt DESC').all()
     return c.json(results)
+})
+
+app.put('/api/admin/clinics/:id', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const id = c.req.param('id')
+    const body = await c.req.json()
+    
+    const clinic: any = await c.env.DB.prepare('SELECT id FROM clinics WHERE id = ?').bind(id).first()
+    if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
+
+    // Calculate validUntil dynamically and add to SET query
+    let validUntilQuery = "validUntil = datetime('now', '+1 year')"; // Default YEARLY
+    if (body.subscriptionPlan === 'MONTHLY') validUntilQuery = "validUntil = datetime('now', '+1 month')";
+    if (body.subscriptionPlan === '2YEARS') validUntilQuery = "validUntil = datetime('now', '+2 years')";
+    if (body.subscriptionPlan === 'LIFETIME') validUntilQuery = "validUntil = datetime('now', '+100 years')";
+
+    await c.env.DB.prepare(
+        `UPDATE clinics SET name = ?, email = ?, phone = ?, subscriptionPlan = ?, ${validUntilQuery} WHERE id = ?`
+    ).bind(body.name, body.email, body.phone, body.subscriptionPlan, id).run()
+    
+    return c.json({ success: true })
+})
+
+app.put('/api/admin/clinics/:id/validity', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const id = c.req.param('id')
+    const body = await c.req.json()
+    
+    if (!body.modifier) return c.json({ error: 'Modifier required' }, 400)
+    
+    await c.env.DB.prepare(`UPDATE clinics SET validUntil = datetime('now', ?) WHERE id = ?`).bind(body.modifier, id).run()
+    
+    return c.json({ success: true })
+})
+
+app.delete('/api/admin/clinics/:id', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const id = c.req.param('id')
+    
+    // Batch delete to cleanly remove the clinic and all its associated data
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM patients WHERE clinicId = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM medicines WHERE clinicId = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM examinations WHERE clinicId = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM visits WHERE clinicId = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM notifications WHERE clinicId = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM clinics WHERE id = ?').bind(id)
+    ])
+    
+    return c.json({ success: true })
 })
 
 app.put('/api/admin/clinics/:id/activate', async (c) => {
@@ -129,14 +300,97 @@ app.put('/api/admin/clinics/:id/activate', async (c) => {
     if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
     
     const id = c.req.param('id')
-    await c.env.DB.prepare('UPDATE clinics SET status = "active" WHERE id = ?').bind(id).run()
+    // Get clinic info for email
+    const clinic: any = await c.env.DB.prepare('SELECT email, name FROM clinics WHERE id = ?').bind(id).first()
+    
+    if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
+
+    let validUntilQuery = "datetime('now', '+1 year')"; // Default YEARLY
+    if (clinic.subscriptionPlan === 'MONTHLY') validUntilQuery = "datetime('now', '+1 month')";
+    if (clinic.subscriptionPlan === '2YEARS') validUntilQuery = "datetime('now', '+2 years')";
+    if (clinic.subscriptionPlan === 'LIFETIME') validUntilQuery = "datetime('now', '+100 years')";
+
+    await c.env.DB.prepare(`UPDATE clinics SET status = "active", validUntil = ${validUntilQuery} WHERE id = ?`).bind(id).run()
+    
+    // Send Success Email
+    await sendEmail(
+        c.env, 
+        clinic.email, 
+        'Aktivasi Akun SatSet RM Berhasil', 
+        getEmailTemplate('success', clinic.name)
+    );
+    
     return c.json({ success: true })
+})
+
+app.put('/api/admin/clinics/:id/reject', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const id = c.req.param('id')
+    const clinic: any = await c.env.DB.prepare('SELECT email, name FROM clinics WHERE id = ?').bind(id).first()
+    
+    if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
+
+    await c.env.DB.prepare('UPDATE clinics SET status = "rejected" WHERE id = ?').bind(id).run()
+    
+    // Send Rejection Email
+    await sendEmail(
+        c.env, 
+        clinic.email, 
+        'Informasi Aktivasi Akun SatSet RM', 
+        getEmailTemplate('rejected', clinic.name)
+    );
+    
+    return c.json({ success: true })
+})
+
+app.post('/api/admin/impersonate/:id', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const id = c.req.param('id')
+    const clinic: any = await c.env.DB.prepare('SELECT * FROM clinics WHERE id = ?').bind(id).first()
+    
+    if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
+
+    const token = await sign({ 
+        uid: clinic.id, 
+        email: clinic.email, 
+        status: clinic.status,
+        isAdmin: clinic.isAdmin,
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 2) // 2 hours impersonation
+    }, c.env.JWT_SECRET || SECRET)
+
+    return c.json({ 
+        token, 
+        user: { 
+          uid: clinic.id, 
+          email: clinic.email, 
+          displayName: clinic.name,
+          status: clinic.status,
+          isAdmin: clinic.isAdmin,
+          clinicType: clinic.clinicType
+        } 
+    })
 })
 
 app.get('/api/auth/me', async (c) => {
     const payload: any = c.get('jwtPayload')
-    const user: any = await c.env.DB.prepare('SELECT id, name, email, phone, status, isAdmin, subscriptionPlan FROM clinics WHERE id = ?').bind(payload.uid).first()
+    const user: any = await c.env.DB.prepare('SELECT id, name, email, phone, status, isAdmin, subscriptionPlan, clinicType, validUntil FROM clinics WHERE id = ?').bind(payload.uid).first()
     return c.json(user)
+})
+
+app.put('/api/auth/renew', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    const body = await c.req.json()
+    
+    if (!body.subscriptionPlan) return c.json({ error: 'Paket langganan harus dipilih' }, 400)
+    
+    await c.env.DB.prepare('UPDATE clinics SET status = "pending", subscriptionPlan = ? WHERE id = ?')
+        .bind(body.subscriptionPlan, payload.uid).run()
+
+    return c.json({ success: true })
 })
 
 // Helper untuk ambil clinicId dari Token
@@ -146,8 +400,10 @@ const getClinicId = (c: any) => c.get('jwtPayload').uid
 app.get('/api/patients', async (c) => {
   const clinicId = getClinicId(c)
   const { results } = await c.env.DB.prepare(
-    'SELECT * FROM patients WHERE clinicId = ? ORDER BY createdAt DESC'
+    // Optimize: only fetch columns needed for list view (not address, extendedData, etc)
+    'SELECT id, rm, name, namaSuami, gender, category, dob, ageDisplay, poli, allergies, createdAt, updatedAt FROM patients WHERE clinicId = ? ORDER BY createdAt DESC LIMIT 1000'
   ).bind(clinicId).all()
+  c.header('Cache-Control', 'private, max-age=10, stale-while-revalidate=30')
   return c.json(results)
 })
 
@@ -177,10 +433,10 @@ app.post('/api/patients', async (c) => {
   const id = crypto.randomUUID()
   
   await c.env.DB.prepare(
-    `INSERT INTO patients (id, clinicId, rm, name, gender, category, address, dob, ageYears, ageMonths, ageDisplay, poli, allergies, createdBy) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, dob, ageYears, ageMonths, ageDisplay, poli, allergies, createdBy) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    id, clinicId, body.rm, body.name, body.gender, body.category, 
+    id, clinicId, body.rm, body.name, body.namaSuami || null, body.gender, body.category, 
     body.address, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.poli, body.allergies || null, clinicId
   ).run()
   
@@ -199,9 +455,9 @@ app.put('/api/patients/:id', async (c) => {
       ).bind(body.poli, body.updatedAt || new Date().toISOString(), id, clinicId).run()
   } else {
       await c.env.DB.prepare(
-        'UPDATE patients SET name=?, gender=?, category=?, address=?, dob=?, ageYears=?, ageMonths=?, ageDisplay=?, poli=?, allergies=?, updatedAt=? WHERE id=? AND clinicId=?'
+        'UPDATE patients SET name=?, namaSuami=?, gender=?, category=?, address=?, dob=?, ageYears=?, ageMonths=?, ageDisplay=?, poli=?, allergies=?, updatedAt=? WHERE id=? AND clinicId=?'
       ).bind(
-        body.name, body.gender, body.category, body.address, body.dob, 
+        body.name, body.namaSuami || null, body.gender, body.category, body.address, body.dob, 
         body.ageYears, body.ageMonths, body.ageDisplay, body.poli, body.allergies || null, new Date().toISOString(), id, clinicId
       ).run()
   }
@@ -220,8 +476,11 @@ app.delete('/api/patients/:id', async (c) => {
 app.get('/api/medicines', async (c) => {
   const clinicId = getClinicId(c)
   const { results } = await c.env.DB.prepare(
-    'SELECT * FROM medicines WHERE clinicId = ? ORDER BY name ASC'
+    // Optimize: select only fields needed (inventory data rarely changes)
+    'SELECT id, name, unit, price FROM medicines WHERE clinicId = ? ORDER BY name ASC'
   ).bind(clinicId).all()
+  // Cache-Control for 5 minutes – medicines data rarely changes mid-session
+  c.header('Cache-Control', 'private, max-age=300, stale-while-revalidate=60')
   return c.json(results)
 })
 
@@ -267,20 +526,20 @@ app.get('/api/examinations', async (c) => {
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
   
-  let query = 'SELECT * FROM examinations WHERE clinicId = ?'
+  let query = 'SELECT examinations.*, patients.namaSuami, patients.ageDisplay, patients.address FROM examinations LEFT JOIN patients ON examinations.patientId = patients.id WHERE examinations.clinicId = ?'
   let params: any[] = [clinicId]
   
   if (patientId) {
-    query += ' AND patientId = ?'
+    query += ' AND examinations.patientId = ?'
     params.push(patientId)
   }
 
   if (startDate && endDate) {
-    query += ' AND createdAt >= ? AND createdAt <= ?'
+    query += ' AND examinations.createdAt >= ? AND examinations.createdAt <= ?'
     params.push(startDate, endDate)
   }
   
-  query += ' ORDER BY createdAt DESC'
+  query += ' ORDER BY examinations.createdAt DESC'
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   

@@ -6,8 +6,10 @@ CREATE TABLE IF NOT EXISTS clinics (
     password TEXT NOT NULL,
     phone TEXT,
     subscriptionPlan TEXT,
-    status TEXT DEFAULT 'pending', -- pending, active, inactive
+    status TEXT DEFAULT 'pending', -- pending, active, inactive, rejected
     isAdmin INTEGER DEFAULT 0, -- 1 for system admin
+    clinicType TEXT DEFAULT 'Bidan', -- Bidan, Perawat, Dokter
+    validUntil DATETIME, -- The expiration date of the clinic's active subscription
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -17,6 +19,7 @@ CREATE TABLE IF NOT EXISTS patients (
     clinicId TEXT NOT NULL,
     rm TEXT,
     name TEXT NOT NULL,
+    namaSuami TEXT,
     gender TEXT,
     category TEXT,
     address TEXT,
@@ -116,3 +119,16 @@ CREATE TABLE IF NOT EXISTS notifications (
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (clinicId) REFERENCES clinics(id)
 );
+
+-- ============================================================================
+-- INDEXES UNTUK OPTIMASI PERFORMA CLOUDFLARE D1 (Menghindari Full Table Scan)
+-- ============================================================================
+
+CREATE INDEX IF NOT EXISTS idx_patients_clinicId ON patients(clinicId);
+CREATE INDEX IF NOT EXISTS idx_medicines_clinicId ON medicines(clinicId);
+CREATE INDEX IF NOT EXISTS idx_examinations_clinicId ON examinations(clinicId);
+CREATE INDEX IF NOT EXISTS idx_examinations_patientId ON examinations(patientId);
+CREATE INDEX IF NOT EXISTS idx_examinations_date ON examinations(clinicId, date); -- Optimasi: query 'hari ini'
+CREATE INDEX IF NOT EXISTS idx_visits_clinicId ON visits(clinicId);
+CREATE INDEX IF NOT EXISTS idx_visits_patientId ON visits(patientId);
+CREATE INDEX IF NOT EXISTS idx_notifications_clinicId ON notifications(clinicId);

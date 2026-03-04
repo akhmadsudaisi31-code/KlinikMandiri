@@ -15,6 +15,13 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
     const isSOAP = 'keluhanUtama' in data; 
     const date = data.date ? new Date(data.date) : (data.createdAt ? new Date(data.createdAt) : new Date());
 
+    let ext: any = {};
+    if (data.extendedData_json) {
+        try {
+            ext = typeof data.extendedData_json === 'string' ? JSON.parse(data.extendedData_json) : data.extendedData_json;
+        } catch (e) {}
+    }
+
     return (
         <Transition appear show={isOpen} as={Fragment}>
             <Dialog as="div" className="relative z-50" onClose={onClose}>
@@ -60,6 +67,84 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                             <span className="font-bold text-gray-700 dark:text-gray-300">Sistem SatSet RM</span>
                                         </div>
                                     </div>
+
+                                    {ext.category && (
+                                        <div className="bg-primary-50 dark:bg-primary-900/10 border border-primary-200 dark:border-primary-800 p-4 rounded-xl">
+                                            <p className="text-[10px] font-black text-primary-600 dark:text-primary-400 uppercase tracking-widest mb-3">Layanan</p>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                <div>
+                                                    <span className="text-[10px] font-bold text-gray-500 block mb-1">Kategori</span>
+                                                    <span className="font-bold text-gray-900 dark:text-gray-100">{ext.category}</span>
+                                                </div>
+                                                {ext.hpht && (
+                                                    <div>
+                                                        <span className="text-[10px] font-bold text-gray-500 block mb-1">HPHT</span>
+                                                        <span className="font-bold text-gray-900 dark:text-gray-100">{ext.hpht}</span>
+                                                    </div>
+                                                )}
+                                                {ext.hpl && (
+                                                    <div>
+                                                        <span className="text-[10px] font-bold text-gray-500 block mb-1">HPL</span>
+                                                        <span className="font-bold text-gray-900 dark:text-gray-100">{ext.hpl}</span>
+                                                    </div>
+                                                )}
+                                                {ext.usiaKehamilan && (
+                                                    <div>
+                                                        <span className="text-[10px] font-bold text-gray-500 block mb-1">UK/Hamil Ke</span>
+                                                        <span className="font-bold text-gray-900 dark:text-gray-100">{ext.usiaKehamilan} / {ext.hamilKe}</span>
+                                                    </div>
+                                                )}
+                                                {ext.lila && (
+                                                    <div>
+                                                        <span className="text-[10px] font-bold text-gray-500 block mb-1">LILA</span>
+                                                        <span className="font-bold text-gray-900 dark:text-gray-100">{ext.lila}</span>
+                                                    </div>
+                                                )}
+                                                {ext.gpa && (
+                                                    <div>
+                                                        <span className="text-[10px] font-bold text-gray-500 block mb-1">G/P/A</span>
+                                                        <span className="font-bold text-gray-900 dark:text-gray-100">{ext.gpa}</span>
+                                                    </div>
+                                                )}
+                                                {ext.isKb && (
+                                                    <>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Metode KB</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.metodeKb} ({ext.akseptor})</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Tgl Kembali</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.tglKembaliKb}</span>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                            
+                                            {ext.isPersalinan && (
+                                                <div className="mt-4 pt-4 border-t border-primary-200 dark:border-primary-800">
+                                                    <p className="text-[10px] font-black text-primary-600 dark:text-primary-400 uppercase tracking-widest mb-3">Persalinan</p>
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Jenis Persalinan</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.jenisPersalinan}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Tgl/Jam Partus</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.tglPartus} {ext.jamPartus}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">BB/PB Bayi</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.bbl} / {ext.pb}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Apgar Score</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.as}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {isSOAP ? (
                                         <div className="space-y-8">

@@ -8,6 +8,8 @@ export interface User {
   status: 'pending' | 'active' | 'inactive';
   isAdmin: number;
   subscriptionPlan?: string;
+  clinicType?: 'Bidan' | 'Perawat' | 'Dokter';
+  validUntil?: string;
 }
 
 interface AuthContextType {
@@ -35,7 +37,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             displayName: data.name,
             status: data.status,
             isAdmin: data.isAdmin,
-            subscriptionPlan: data.subscriptionPlan
+            subscriptionPlan: data.subscriptionPlan,
+            clinicType: data.clinicType,
+            validUntil: data.validUntil
         };
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
@@ -60,6 +64,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(false);
   }, []);
+
+  // Sync theme with user.clinicType
+  useEffect(() => {
+    document.body.classList.remove('theme-bidan', 'theme-perawat', 'theme-dokter');
+    if (user && user.clinicType) {
+      document.body.classList.add(`theme-${user.clinicType.toLowerCase()}`);
+    } else {
+      document.body.classList.add('theme-bidan'); // Default
+    }
+  }, [user]);
 
   const login = (token: string, userData: User) => {
     localStorage.setItem('token', token);
