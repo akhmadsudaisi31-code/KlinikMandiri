@@ -1,6 +1,14 @@
 const isProd = !window.location.hostname.includes('localhost');
-const PROD_API_URL = 'https://my-cloudflare-backend.praktek-mandiri.workers.dev/api';
-const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? PROD_API_URL : 'http://localhost:8787/api');
+const PROD_API_URL = 'https://klinikmandiri.praktek-mandiri.workers.dev/api';
+// Jika di production, JANGAN gunakan env var, paksa pakai PROD_API_URL 
+// untuk mencegah salah set env var di dashboard.
+const API_BASE_URL = isProd ? PROD_API_URL : (import.meta.env.VITE_API_URL || 'http://localhost:8787/api');
+
+console.log('🚀 SATSET RM STARTING...', {
+  isProd,
+  hostname: window.location.hostname,
+  API_BASE_URL
+});
 
 // Helper for standard fetch
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
