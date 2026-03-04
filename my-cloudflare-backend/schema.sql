@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS clinics (
     isAdmin INTEGER DEFAULT 0, -- 1 for system admin
     clinicType TEXT DEFAULT 'Bidan', -- Bidan, Perawat, Dokter
     validUntil DATETIME, -- The expiration date of the clinic's active subscription
+    lastLoginAt DATETIME, -- The timestamp of the last successful login
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

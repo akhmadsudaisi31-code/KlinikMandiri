@@ -15,6 +15,7 @@ interface ClinicEntry {
     status: 'pending' | 'active' | 'inactive' | 'rejected';
     subscriptionPlan: string;
     createdAt: string;
+    lastLoginAt?: string;
 }
 
 function AdminDashboard() {
@@ -26,6 +27,17 @@ function AdminDashboard() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingClinic, setEditingClinic] = useState<ClinicEntry | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', subscriptionPlan: '' });
+
+  // Activity Modal State
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+  const [activityStats, setActivityStats] = useState<any>(null);
+  const [activityClinicName, setActivityClinicName] = useState('');
+  const [activityLoading, setActivityLoading] = useState(false);
+
+  // Reset Database State
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const fetchClinics = async () => {
     try {
@@ -126,6 +138,40 @@ function AdminDashboard() {
       }
   };
 
+  const handleActivityClick = async (clinic: ClinicEntry) => {
+      setActivityClinicName(clinic.name);
+      setIsActivityModalOpen(true);
+      setActivityLoading(true);
+      try {
+          const data: any = await api.get(`/admin/clinics/${clinic.id}/activity`);
+          setActivityStats(data);
+      } catch (e) {
+          toast.error('Gagal mengambil data aktivitas');
+          setIsActivityModalOpen(false);
+      } finally {
+          setActivityLoading(false);
+      }
+  };
+
+  const handleResetDatabase = async () => {
+      if (resetConfirmation !== 'RESET') {
+          toast.error('Ketik RESET untuk mengonfirmasi penghapusan data');
+          return;
+      }
+      setIsResetting(true);
+      try {
+          await api.delete('/admin/system/reset', { data: { confirmation: 'RESET' } });
+          toast.success('Database berhasil direset!');
+          setIsResetModalOpen(false);
+          setResetConfirmation('');
+          fetchClinics();
+      } catch (e: any) {
+          toast.error(e.message || 'Gagal mereset database');
+      } finally {
+          setIsResetting(false);
+      }
+  };
+
   if (authLoading) return null;
   if (!user || user.isAdmin !== 1) return <Navigate to="/" replace />;
 
@@ -182,7 +228,18 @@ function AdminDashboard() {
                         </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2 flex-wrap sm:flex-nowrap">
+                            {/* Activity Stats Icon */}
+                            <button
+                                onClick={() => handleActivityClick(clinic)}
+                                title="Statistik Aktivitas Klinik"
+                                className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 rounded-lg transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                                </svg>
+                            </button>
+
                             {/* Preview Account Icon */}
                             <button
                                 onClick={() => handleImpersonate(clinic.id, clinic.name)}
@@ -365,6 +422,144 @@ function AdminDashboard() {
               >
                 Simpan Perubahan
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activity Stats Modal */}
+      {isActivityModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm transition-all duration-300">
+          <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100 border border-gray-100 dark:border-dark-border">
+            <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-dark-surface">
+              <div>
+                  <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tight">Statistik Aktivitas</h3>
+                  <p className="text-xs font-bold text-gray-400 mt-1">{activityClinicName}</p>
+              </div>
+              <button onClick={() => setIsActivityModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-gray-800 p-2 rounded-full transition-colors">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="p-6">
+                {activityLoading ? (
+                    <div className="py-12 flex justify-center items-center">
+                        <div className="animate-spin rounded-full h-10 w-10 border-4 border-primary-200 border-t-primary-600"></div>
+                    </div>
+                ) : activityStats ? (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                                <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Total Pasien</p>
+                                <p className="text-3xl font-black text-gray-900 dark:text-white">{activityStats.totalPatients}</p>
+                            </div>
+                            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-2xl border border-green-100 dark:border-green-900/30">
+                                <p className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-widest mb-1">Total Rekam Medis</p>
+                                <p className="text-3xl font-black text-gray-900 dark:text-white">{activityStats.totalExaminations}</p>
+                            </div>
+                            <div className="col-span-2 bg-purple-50 dark:bg-purple-900/20 p-4 rounded-2xl border border-purple-100 dark:border-purple-900/30">
+                                <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-widest mb-1">Total Obat (Inventaris)</p>
+                                <p className="text-3xl font-black text-gray-900 dark:text-white">{activityStats.totalMedicines}</p>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 mr-2 text-gray-400">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Terakhir Login: <strong className="ml-2 text-gray-900 dark:text-white">
+                                    {activityStats.lastLoginAt ? format(new Date(activityStats.lastLoginAt), 'dd MMM yyyy HH:mm', { locale: localeId }) : 'Belum pernah login'}
+                                </strong>
+                            </p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="text-center py-10 text-gray-500">Data tidak tersedia.</div>
+                )}
+            </div>
+            
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/30 flex justify-end">
+              <button 
+                onClick={() => setIsActivityModalOpen(false)}
+                className="px-6 py-2.5 text-sm font-bold text-gray-700 dark:text-white bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-xl transition-all shadow-sm"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Danger Zone: Reset Database */}
+      <div className="mt-12 bg-red-50 dark:bg-red-900/10 border-2 border-red-200 dark:border-red-900/30 rounded-3xl p-8 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+            <div>
+                <h3 className="text-xl font-black text-red-600 dark:text-red-500 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    DANGER ZONE
+                </h3>
+                <p className="text-sm text-red-800 dark:text-red-300 mt-2 max-w-2xl font-medium">Aksi ini akan MENGHAPUS SEMUA DATA transaksi (pasien, obat, rekam medis) dan semua akun klinik kecuali akun Administrator. Gunakan hanya jika Anda ingin mengosongkan aplikasi secara total untuk reset produksi.</p>
+            </div>
+            <button
+                onClick={() => setIsResetModalOpen(true)}
+                className="shrink-0 bg-red-600 hover:bg-red-700 text-white font-black px-6 py-3 rounded-2xl shadow-lg shadow-red-500/30 transition-all transform hover:scale-105"
+            >
+                Reset Database
+            </button>
+        </div>
+      </div>
+
+      {/* Reset Database Modal */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-red-900/40 backdrop-blur-md transition-all duration-300">
+          <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all border-2 border-red-100 dark:border-red-900">
+            <div className="p-8 text-center">
+                <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 dark:bg-red-900/40 mb-6">
+                  <svg className="h-10 w-10 text-red-600 dark:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h3 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight mb-2">Peringatan Keras!</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mb-6">
+                    Anda akan menghapus seluruh data pada server ini secara permanen. Aksi ini tidak dapat dibatalkan.
+                </p>
+                
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-6">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 text-left">Ketik <strong className="text-red-600 dark:text-red-400">RESET</strong> untuk mengonfirmasi:</p>
+                    <input 
+                      type="text" 
+                      value={resetConfirmation}
+                      onChange={(e) => setResetConfirmation(e.target.value)}
+                      placeholder="RESET"
+                      className="w-full text-center text-xl tracking-widest font-black px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl dark:bg-gray-900 dark:text-white focus:outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/20 transition-all uppercase"
+                    />
+                </div>
+
+                <div className="flex flex-col-reverse sm:flex-row gap-3">
+                  <button 
+                    onClick={() => { setIsResetModalOpen(false); setResetConfirmation(''); }}
+                    disabled={isResetting}
+                    className="w-full px-6 py-3.5 text-sm font-bold text-gray-700 dark:text-gray-300 bg-white dark:bg-dark-surface border-2 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={handleResetDatabase}
+                    disabled={resetConfirmation !== 'RESET' || isResetting}
+                    className="w-full px-6 py-3.5 text-sm font-black text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:hover:scale-100 rounded-xl shadow-lg transition-all transform hover:scale-105 flex justify-center items-center"
+                  >
+                    {isResetting ? (
+                        <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                        "HANCURKAN DATA"
+                    )}
+                  </button>
+                </div>
             </div>
           </div>
         </div>

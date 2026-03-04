@@ -81,6 +81,11 @@ app.post('/api/auth/login', async (c) => {
     exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // 24 jam
   }, c.env.JWT_SECRET || SECRET)
 
+  // Update last login timestamp
+  try {
+      await c.env.DB.prepare('UPDATE clinics SET lastLoginAt = CURRENT_TIMESTAMP WHERE id = ?').bind(user.id).run();
+  } catch(e) { console.error('Failed updating lastLoginAt', e) }
+
   return c.json({ 
     token, 
     user: { 
@@ -373,6 +378,50 @@ app.post('/api/admin/impersonate/:id', async (c) => {
           clinicType: clinic.clinicType
         } 
     })
+})
+
+app.get('/api/admin/clinics/:id/activity', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const id = c.req.param('id')
+    const clinic: any = await c.env.DB.prepare('SELECT lastLoginAt FROM clinics WHERE id = ?').bind(id).first()
+    
+    if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
+    
+    // Aggregate counts
+    const patientsCount = await c.env.DB.prepare('SELECT COUNT(*) as c FROM patients WHERE clinicId = ?').bind(id).first()
+    const medicinesCount = await c.env.DB.prepare('SELECT COUNT(*) as c FROM medicines WHERE clinicId = ?').bind(id).first()
+    const examsCount = await c.env.DB.prepare('SELECT COUNT(*) as c FROM examinations WHERE clinicId = ?').bind(id).first()
+    
+    return c.json({
+        lastLoginAt: clinic.lastLoginAt,
+        totalPatients: (patientsCount as any)?.c || 0,
+        totalMedicines: (medicinesCount as any)?.c || 0,
+        totalExaminations: (examsCount as any)?.c || 0
+    })
+})
+
+app.delete('/api/admin/system/reset', async (c) => {
+    const payload: any = c.get('jwtPayload')
+    if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
+    
+    const body: any = await c.req.json().catch(() => ({}))
+    if (body.confirmation !== 'RESET') return c.json({ error: 'Konfirmasi tidak valid' }, 400)
+    
+    try {
+        await c.env.DB.prepare('DELETE FROM patients').run()
+        await c.env.DB.prepare('DELETE FROM medicines').run()
+        await c.env.DB.prepare('DELETE FROM examinations').run()
+        await c.env.DB.prepare('DELETE FROM visits').run()
+        await c.env.DB.prepare('DELETE FROM notifications').run()
+        await c.env.DB.prepare('DELETE FROM clinics WHERE isAdmin = 0').run()
+        
+        return c.json({ success: true, message: 'Semua data telah direset' })
+    } catch (e: any) {
+        console.error('Reset Failed:', e)
+        return c.json({ error: 'Gagal melakukan reset database' }, 500)
+    }
 })
 
 app.get('/api/auth/me', async (c) => {
