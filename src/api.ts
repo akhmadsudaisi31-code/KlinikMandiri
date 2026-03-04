@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787/api';
+const isProd = !window.location.hostname.includes('localhost');
+const PROD_API_URL = 'https://my-cloudflare-backend.praktek-mandiri.workers.dev/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? PROD_API_URL : 'http://localhost:8787/api');
 
 // Helper for standard fetch
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
