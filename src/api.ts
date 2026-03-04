@@ -29,7 +29,7 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
     let errorMsg = 'An error occurred';
     try {
       const errRes = await response.json();
-      errorMsg = errRes.message || errorMsg;
+      errorMsg = errRes.error || errRes.message || errorMsg;
     } catch (e) {
       errorMsg = response.statusText;
     }

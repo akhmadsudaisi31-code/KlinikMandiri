@@ -25,9 +25,9 @@ function Login() {
       toast.success('Selamat datang kembali!');
       navigate('/');
     } catch (err: any) {
-      console.error("Auth Error:", err.code);
-      setError('Email atau password tidak sesuai.');
-      toast.error('Gagal masuk aplikasi.');
+      console.error("Auth Error:", err.message);
+      setError(err.message || 'Email atau password tidak sesuai.');
+      toast.error(err.message || 'Gagal masuk aplikasi.');
     }
   };
 
