@@ -43,7 +43,7 @@ function Login() {
           </svg>
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight font-sans">
-          RM <span className="text-primary-600">SatSet</span>
+          KlinikMandiri
         </h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-dark-muted">
           Sistem Rekam Medis Elektronik Terintegrasi
@@ -138,7 +138,7 @@ function Login() {
           </div>
         </div>
         <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
-          &copy; 2026 Akhmad Sudaisi (RM SatSet). All rights reserved.
+          &copy; 2026 KlinikMandiri. All rights reserved.
         </p>
       </div>
     </div>

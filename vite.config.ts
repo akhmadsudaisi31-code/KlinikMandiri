@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['192.png', '512.png'],
       manifest: {
-        name: 'RM SatSet',
-        short_name: 'RM SatSet',
-        description: 'Aplikasi Rekam Medis SatSet',
+        name: 'KlinikMandiri',
+        short_name: 'KlinikMandiri',
+        description: 'Aplikasi Rekam Medis KlinikMandiri',
         theme_color: '#c8e9d1',
         background_color: '#c8e9d1',
         display: 'standalone',

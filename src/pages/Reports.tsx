@@ -34,7 +34,7 @@ ChartJS.register(
 );
 
 type ReportType = 'daily' | 'monthly' | 'yearly';
-type DataSource = 'examinations' | 'patients' | 'visits' | 'anc' | 'persalinan';
+type DataSource = 'examinations' | 'patients' | 'anc' | 'persalinan';
 const ITEMS_PER_PAGE = 20;
 
 function Reports() {
@@ -49,10 +49,18 @@ function Reports() {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const { user } = useAuth();
+  const isBidanClinic = (user?.clinicType || '').toLowerCase() === 'bidan';
 
   useEffect(() => {
     fetchReport();
   }, [reportType, selectedDate, dataSource, user]);
+
+  useEffect(() => {
+    // Non-bidan accounts are not allowed to open ANC/Persalinan reports
+    if (!isBidanClinic && (dataSource === 'anc' || dataSource === 'persalinan')) {
+      setDataSource('examinations');
+    }
+  }, [isBidanClinic, dataSource]);
 
   const fetchReport = async () => {
     setLoading(true);
@@ -102,7 +110,7 @@ function Reports() {
         });
       }
 
-      if (dataSource === 'examinations' || dataSource === 'visits' || dataSource === 'anc' || dataSource === 'persalinan') {
+      if (dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') {
         const data = rawData.map((d: any) => {
            let ext = {};
            try { ext = d.extendedData_json ? (typeof d.extendedData_json === 'string' ? JSON.parse(d.extendedData_json) : d.extendedData_json) : {}; } catch(e) {}
@@ -134,11 +142,12 @@ function Reports() {
     if (!window.confirm('Apakah Anda yakin ingin menghapus data ini?')) return;
 
     try {
-      await api.delete(`/${dataSource}/${id}`);
+      const deleteEndpoint = (dataSource === 'anc' || dataSource === 'persalinan') ? 'examinations' : dataSource;
+      await api.delete(`/${deleteEndpoint}/${id}`);
       toast.success('Data berhasil dihapus');
       
       // Update local state
-      if (dataSource === 'examinations' || dataSource === 'visits') {
+      if (dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') {
         setExaminations(prev => prev.filter(item => item.id !== id));
       } else {
         setPatients(prev => prev.filter(item => item.id !== id));
@@ -349,10 +358,9 @@ function Reports() {
                 className="w-full md:w-56 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-white rounded-xl font-medium focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all appearance-none"
               >
                 <option value="examinations">Laporan Pemeriksaan (Poli)</option>
-                <option value="visits">Laporan Kunjungan (Detail Pasien)</option>
                 <option value="patients">Laporan Pendaftaran</option>
-                <option value="anc">Laporan Pelayanan ANC</option>
-                <option value="persalinan">Laporan Persalinan</option>
+                {isBidanClinic && <option value="anc">Laporan Pelayanan ANC</option>}
+                {isBidanClinic && <option value="persalinan">Laporan Persalinan</option>}
               </select>
             </div>
           </div>
@@ -388,7 +396,7 @@ function Reports() {
 
           <div className="flex-grow w-full md:w-auto md:text-right mt-2 md:mt-0">
             <div className="bg-gradient-to-br from-primary-500 to-primary-600 p-4 rounded-2xl text-white shadow-lg shadow-primary-200 dark:shadow-none flex md:inline-flex flex-col md:items-end min-w-[150px]">
-              <p className="text-xs font-bold uppercase opacity-80">{dataSource === 'examinations' ? 'Total Pemeriksaan' : 'Total Pendaftaran'}</p>
+              <p className="text-xs font-bold uppercase opacity-80">{dataSource === 'patients' ? 'Total Pendaftaran' : 'Total Pemeriksaan'}</p>
               <p className="text-3xl font-bold mt-1">{currentData.length}</p>
             </div>
 

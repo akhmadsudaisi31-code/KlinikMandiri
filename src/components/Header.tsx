@@ -173,7 +173,7 @@ function Header() {
                 </svg>
               </div>
               <span className="text-xl font-bold text-gray-800 dark:text-white tracking-tight group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors font-sans">
-                RM <span className="text-primary-600 dark:text-primary-500">SatSet</span>
+                KlinikMandiri
               </span>
             </Link>
 

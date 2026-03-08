@@ -65,7 +65,7 @@ function App({ children }: AppProps) {
         {children}
         {user && (
           <footer className="mt-12 text-center text-sm text-gray-400 dark:text-gray-600 pb-4">
-            &copy; {new Date().getFullYear()} AKHMAD SUDAISI. All rights reserved.
+            &copy; {new Date().getFullYear()} KlinikMandiri. All rights reserved.
           </footer>
         )}
       </main>

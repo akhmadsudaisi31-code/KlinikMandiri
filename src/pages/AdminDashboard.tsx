@@ -14,6 +14,7 @@ interface ClinicEntry {
     phone: string;
     status: 'pending' | 'active' | 'inactive' | 'rejected';
     subscriptionPlan: string;
+    clinicType?: string;
     createdAt: string;
     lastLoginAt?: string;
 }
@@ -304,6 +305,7 @@ function AdminDashboard() {
                 <tr className="border-b border-gray-100 dark:border-gray-800">
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Klinik</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Kontak</th>
+                  <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Jenis Klinik</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Paket</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
                   <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Aksi</th>
@@ -322,6 +324,11 @@ function AdminDashboard() {
                          <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-1">
                              {format(new Date(clinic.createdAt), 'dd MMM yyyy HH:mm', { locale: localeId })}
                          </p>
+                    </td>
+                    <td className="px-6 py-4">
+                        <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-3 py-1 rounded-full uppercase tracking-widest">
+                            {clinic.clinicType || '-'}
+                        </span>
                     </td>
                     <td className="px-6 py-4">
                         <span className="text-[10px] font-black bg-primary-100 dark:bg-primary-900/30 text-primary-600 px-3 py-1 rounded-full uppercase tracking-widest">
@@ -346,7 +353,7 @@ function AdminDashboard() {
                 ))}
                 {clinics.length === 0 && (
                      <tr>
-                         <td colSpan={5} className="text-center py-20 text-gray-300 font-black uppercase tracking-widest">Tidak Ada Klinik Terdaftar</td>
+                         <td colSpan={6} className="text-center py-20 text-gray-300 font-black uppercase tracking-widest">Tidak Ada Klinik Terdaftar</td>
                      </tr>
                 )}
               </tbody>
@@ -383,6 +390,9 @@ function AdminDashboard() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-3 py-1 rounded-full uppercase tracking-widest border border-blue-100 dark:border-blue-900/50">
+                            Jenis: {clinic.clinicType || '-'}
+                        </span>
                         <span className="text-[10px] font-black bg-primary-50 dark:bg-primary-900/20 text-primary-600 px-3 py-1 rounded-full uppercase tracking-widest border border-primary-100 dark:border-primary-900/50">
                             Paket: {SUBSCRIPTION_PLANS.find(p => p.id === clinic.subscriptionPlan)?.name || clinic.subscriptionPlan}
                         </span>

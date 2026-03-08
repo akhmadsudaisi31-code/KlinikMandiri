@@ -147,7 +147,7 @@ async function sendEmail(env: Bindings, to: string, subject: string, html: strin
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'Admin SatSet RM <onboarding@resend.dev>',
+        from: 'Admin KlinikMandiri <onboarding@resend.dev>',
         to,
         subject,
         html
@@ -169,7 +169,7 @@ const getEmailTemplate = (type: 'success' | 'rejected', clinicName: string): str
   const color = isSuccess ? '#0ea5e9' : '#f43f5e'; // Sky 500 for success/primary, Rose 500 for error
   const title = isSuccess ? 'Aktivasi Akun Berhasil 🎉' : 'Aktivasi Akun Ditolak ⚠️';
   const body = isSuccess 
-    ? `Selamat! Akun klinik <b>${clinicName}</b> telah berhasil diaktifkan. Anda sekarang dapat masuk (login) dan menikmati seluruh fitur unggulan aplikasi SatSet RM.`
+    ? `Selamat! Akun klinik <b>${clinicName}</b> telah berhasil diaktifkan. Anda sekarang dapat masuk (login) dan menikmati seluruh fitur unggulan aplikasi KlinikMandiri.`
     : `Mohon maaf, aktivasi akun klinik <b>${clinicName}</b> saat ini tidak dapat kami setujui. Hal ini mungkin terjadi jika Anda belum mentransfer nominal yang sesuai atau bukti pembayaran tidak valid.`;
   
   const ctaText = isSuccess ? 'Masuk ke Dashboard' : 'Hubungi Dukungan CS (WA)';
@@ -190,7 +190,7 @@ const getEmailTemplate = (type: 'success' | 'rejected', clinicName: string): str
                 <!-- Header -->
                 <tr>
                   <td align="center" style="padding: 40px 20px; background-color: ${color};">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: -0.5px; font-weight: 800;">SatSet RM</h1>
+                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: -0.5px; font-weight: 800;">KlinikMandiri</h1>
                     <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px; font-weight: 500; letter-spacing: 1px;">SISTEM REKAM MEDIS DIGITAL</p>
                   </td>
                 </tr>
@@ -220,7 +220,7 @@ const getEmailTemplate = (type: 'success' | 'rejected', clinicName: string): str
                 <tr>
                   <td align="center" style="padding: 24px 30px; background-color: #f8fafc; border-top: 1px solid #e2e8f0;">
                     <p style="color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5;">
-                      &copy; ${new Date().getFullYear()} SatSet RM. Hak cipta dilindungi undang-undang.<br>
+                      &copy; ${new Date().getFullYear()} KlinikMandiri. Hak cipta dilindungi undang-undang.<br>
                       Email ini dibuat otomatis, mohon tidak membalas ke alamat email ini.
                     </p>
                   </td>
@@ -240,7 +240,7 @@ app.get('/api/admin/clinics', async (c) => {
     const payload: any = c.get('jwtPayload')
     if (payload.isAdmin !== 1) return c.json({ error: 'Unauthorized' }, 403)
     
-    const { results } = await c.env.DB.prepare('SELECT id, name, email, phone, status, subscriptionPlan, validUntil, createdAt FROM clinics WHERE isAdmin = 0 ORDER BY createdAt DESC').all()
+    const { results } = await c.env.DB.prepare('SELECT id, name, email, phone, status, subscriptionPlan, clinicType, validUntil, createdAt FROM clinics WHERE isAdmin = 0 ORDER BY createdAt DESC').all()
     return c.json(results)
 })
 
@@ -321,7 +321,7 @@ app.put('/api/admin/clinics/:id/activate', async (c) => {
     await sendEmail(
         c.env, 
         clinic.email, 
-        'Aktivasi Akun SatSet RM Berhasil', 
+        'Aktivasi Akun KlinikMandiri Berhasil', 
         getEmailTemplate('success', clinic.name)
     );
     
@@ -343,7 +343,7 @@ app.put('/api/admin/clinics/:id/reject', async (c) => {
     await sendEmail(
         c.env, 
         clinic.email, 
-        'Informasi Aktivasi Akun SatSet RM', 
+        'Informasi Aktivasi Akun KlinikMandiri', 
         getEmailTemplate('rejected', clinic.name)
     );
     

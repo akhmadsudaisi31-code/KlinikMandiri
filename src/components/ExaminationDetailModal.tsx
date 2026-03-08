@@ -64,7 +64,7 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                         </div>
                                         <div className="col-span-2">
                                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Dokter / Pemeriksa</span>
-                                            <span className="font-bold text-gray-700 dark:text-gray-300">Sistem SatSet RM</span>
+                                            <span className="font-bold text-gray-700 dark:text-gray-300">Sistem KlinikMandiri</span>
                                         </div>
                                     </div>
 

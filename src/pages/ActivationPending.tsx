@@ -109,7 +109,7 @@ function ActivationPending() {
                 
                 <a 
                     href="/QRIS.jpeg" 
-                    download="QRIS_RM_SatSet.jpeg"
+                    download="QRIS_KlinikMandiri.jpeg"
                     className="mt-4 flex items-center justify-center gap-2 px-6 py-2.5 bg-primary-50 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 font-bold rounded-xl hover:bg-primary-100 dark:hover:bg-primary-900/60 transition-colors shadow-sm w-fit"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">

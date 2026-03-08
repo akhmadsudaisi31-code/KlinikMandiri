@@ -107,6 +107,7 @@ function ExaminationForm() {
   // Dynamic Allergy State
   const [allergyList, setAllergyList] = useState<string[]>([]);
   const [newAllergy, setNewAllergy] = useState("");
+  const [biayaDisplay, setBiayaDisplay] = useState("");
 
   const {
     register,
@@ -190,6 +191,18 @@ function ExaminationForm() {
   const watchIsKb = watch("isKb");
   const watchIsPersalinan = watch("isPersalinan");
   // const [htpPreview, setHtpPreview] = useState<string>("");
+
+  const formatBiayaDisplay = (value: string) => {
+    const digitsOnly = value.replace(/\D/g, "");
+    if (!digitsOnly) return "";
+    return Number(digitsOnly).toLocaleString("id-ID");
+  };
+
+  const handleBiayaChange = (value: string) => {
+    const rawValue = value.replace(/\D/g, "");
+    setBiayaDisplay(formatBiayaDisplay(rawValue));
+    setValue("biaya", rawValue, { shouldDirty: true, shouldValidate: true });
+  };
 
   // HTP Calculation for Bumil
   useEffect(() => {
@@ -301,7 +314,9 @@ function ExaminationForm() {
     setValue("tindakan", exam.tindakan || "");
     setValue("edukasi", exam.edukasi || "");
     setValue("rencanaTindakLanjut", exam.rencanaTindakLanjut || "");
-    setValue("biaya", exam.biaya ? String(exam.biaya) : "");
+    const biayaRaw = exam.biaya ? String(exam.biaya) : "";
+    setValue("biaya", biayaRaw);
+    setBiayaDisplay(formatBiayaDisplay(biayaRaw));
     setSelectedMedicines(exam.medicines || []);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -309,6 +324,7 @@ function ExaminationForm() {
   const handleCancelEdit = () => {
     setEditingExamId(null);
     reset();
+    setBiayaDisplay("");
     setSelectedMedicines([]);
     setAllergyList(
       patient?.allergies
@@ -336,7 +352,7 @@ function ExaminationForm() {
         bb: data.bb ? Number(data.bb) : null,
         tb: data.tb ? Number(data.tb) : null,
         spo2: data.spo2 ? Number(data.spo2) : null,
-        biaya: data.biaya ? Number(data.biaya) : 0,
+        biaya: data.biaya ? Number(data.biaya.replace(/\D/g, "")) : 0,
         medicines: selectedMedicines,
         extendedData_json: JSON.stringify({
           category: data.examCategory,
@@ -1467,11 +1483,15 @@ function ExaminationForm() {
                 <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
                   Total Biaya Layanan (IDR)
                 </label>
+                <input type="hidden" {...register("biaya")} />
                 <input
-                  type="number"
-                  {...register("biaya")}
+                  type="text"
+                  value={biayaDisplay}
+                  onChange={(e) => handleBiayaChange(e.target.value)}
+                  onBlur={(e) => setBiayaDisplay(formatBiayaDisplay(e.target.value))}
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                   placeholder="0"
+                  inputMode="numeric"
                 />
               </div>
             </div>

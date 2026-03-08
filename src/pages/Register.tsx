@@ -64,7 +64,7 @@ function Register() {
     <div className={`min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 transition-colors duration-500 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 ${themeClass}`}>
       <div className="sm:mx-auto sm:w-full sm:max-w-xl">
         <div className="text-center">
-            <h2 className="text-4xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Register <span className="transition-colors duration-300 text-primary-600">SatSet RM</span></h2>
+            <h2 className="text-4xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Register <span className="transition-colors duration-300 text-primary-600">KlinikMandiri</span></h2>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 font-bold uppercase tracking-widest">Sistem Rekam Medis Digital & Terjangkau</p>
         </div>
 

@@ -15,7 +15,7 @@ Fitur "Lupa Password" menggunakan layanan autentikasi Firebase. Agar fitur ini b
     - Klik tab **Templates**.
     - Pilih jenis template **Password reset**.
     - Pastikan template ini aktif (biasanya aktif secara default).
-    - Anda bisa mengedit "Sender name" (misal: "RM SatSet") atau isi emailnya agar terlihat lebih profesional.
+    - Anda bisa mengedit "Sender name" (misal: "KlinikMandiri") atau isi emailnya agar terlihat lebih profesional.
     - **PENTING**: Jika Anda menggunakan domain kustom (bukan gmail/firebaseapp), pastikan domain tersebut sudah diverifikasi di Firebase. Namun untuk tahap testing/development, defaultnya sudah cukup.
 
 4.  **Tes Fitur**
