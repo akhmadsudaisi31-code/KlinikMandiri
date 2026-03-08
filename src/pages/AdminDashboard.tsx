@@ -296,8 +296,9 @@ function AdminDashboard() {
         {loading ? (
              <div className="text-center py-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Loading Data Klinik...</div>
         ) : (
+          <>
           {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-800">
@@ -353,7 +354,7 @@ function AdminDashboard() {
           </div>
 
           {/* Mobile Card View */}
-          <div className="md:hidden space-y-4">
+          <div className="lg:hidden space-y-4">
             {clinics.map((clinic) => (
                 <div key={clinic.id} className="bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col gap-4 relative overflow-hidden">
                     <div className={`absolute top-0 right-0 w-2 h-full ${
@@ -402,6 +403,7 @@ function AdminDashboard() {
                 </div>
             )}
           </div>
+          </>
         )}
       </div>
 
