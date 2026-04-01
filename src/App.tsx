@@ -38,13 +38,14 @@ function App({ children }: AppProps) {
   // Format notifikasi banner
   const getBannerConfig = (days: number) => {
     if (days === 0) return { bg: 'bg-red-600', text: 'Hari ini adalah hari terakhir masa aktif langganan Anda!' };
-    if (days <= 3) return { bg: 'bg-red-500', text: `Masa aktif langganan tersisa ${days} hari lagi!` };
-    if (days <= 7) return { bg: 'bg-orange-500', text: `Masa aktif langganan tersisa ${days} hari (1 minggu).` };
-    if (days <= 14) return { bg: 'bg-yellow-500', text: `Masa aktif langganan tersisa ${days} hari (2 minggu).` };
-    return { bg: 'bg-blue-500', text: `Masa aktif langganan tersisa ${days} hari (1 bulan).` };
+    if (days === 1) return { bg: 'bg-red-600', text: 'Masa aktif langganan tersisa 1 hari lagi.' };
+    if (days === 2) return { bg: 'bg-red-500', text: 'Masa aktif langganan tersisa 2 hari lagi.' };
+    if (days === 3) return { bg: 'bg-orange-500', text: 'Masa aktif langganan tersisa 3 hari lagi.' };
+    if (days <= 7) return { bg: 'bg-yellow-500', text: `Masa aktif langganan tinggal ${days} hari. Segera jadwalkan perpanjangan.` };
+    return null;
   };
 
-  const showBanner = daysRemaining !== null && daysRemaining <= 30;
+  const showBanner = daysRemaining !== null && daysRemaining <= 7;
   const bannerConfig = showBanner ? getBannerConfig(daysRemaining as number) : null;
 
   return (
@@ -65,7 +66,7 @@ function App({ children }: AppProps) {
         {children}
         {user && (
           <footer className="mt-12 text-center text-sm text-gray-400 dark:text-gray-600 pb-4">
-            &copy; {new Date().getFullYear()} KlinikMandiri. All rights reserved.
+            &copy; {new Date().getFullYear()} KlinikMandiri. Mendampingi praktik klinik agar pelayanan pasien lebih rapi dan mudah.
           </footer>
         )}
       </main>

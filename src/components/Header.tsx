@@ -6,36 +6,54 @@ import { useTheme } from '../context/ThemeContext';
 import toast from 'react-hot-toast';
 import { Notification } from '../types';
 import { startNotificationLoop, stopNotificationLoop } from '../utils/audio';
+import { isDentalClinicType } from '../utils/clinic';
+import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
+import { format } from 'date-fns';
+import { id as localeId } from 'date-fns/locale';
+
+function formatValidUntil(validUntil?: string) {
+  if (!validUntil) return 'Belum diatur';
+
+  const validUntilDate = new Date(validUntil);
+  if (Number.isNaN(validUntilDate.getTime())) return 'Belum diatur';
+
+  if (validUntilDate.getFullYear() >= 2100) {
+    return 'Aktif sangat panjang';
+  }
+
+  return format(validUntilDate, 'dd MMMM yyyy', { locale: localeId });
+}
 
 function Header() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
-  
-  // Ref untuk melacak apakah ini snapshot pertama (data awal)
-  const isFirstRun = React.useRef(true);
+  const isDentalClinic = isDentalClinicType(user?.clinicType);
   const processedNotifs = React.useRef<Set<string>>(new Set());
 
   // Listener Notifikasi Realtime (Polling Fallback)
   React.useEffect(() => {
     if (!user) return;
-    
-    isFirstRun.current = true;
+
     processedNotifs.current.clear();
+
+    const currentRole =
+      location.pathname.startsWith('/pemeriksaan')
+        ? 'pemeriksa'
+        : location.pathname.startsWith('/pendaftaran') || location.pathname.startsWith('/pasien')
+          ? 'pendaftar'
+          : null;
 
     const fetchNotifications = async () => {
       try {
-        const notifs = await api.get('/notifications');
-        if (isFirstRun.current) {
-          isFirstRun.current = false;
-          // Mark existing ones as processed so we don't toast historical data
-          notifs.forEach((n: any) => processedNotifs.current.add(n.id));
-          return;
-        }
+        const endpoint = currentRole
+          ? `/notifications?toRole=${encodeURIComponent(currentRole)}`
+          : '/notifications';
+        const notifs = await api.get(endpoint);
 
-        // Simulasikan struktur notif yang dikembalikan
         notifs.forEach((notif: Notification) => {
           if (processedNotifs.current.has(notif.id)) return;
           processedNotifs.current.add(notif.id);
@@ -43,6 +61,7 @@ function Header() {
           if (notif.type === 'CALL_PATIENT') {
               startNotificationLoop('calling');
           } else if (notif.type === 'NEW_PATIENT') {
+              broadcastPatientQueueUpdate({ patientId: notif.patientId, source: 'notification' });
               startNotificationLoop('incoming');
           }
 
@@ -138,10 +157,22 @@ function Header() {
     };
 
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000); // Poll setiap 60 detik
+    const interval = setInterval(fetchNotifications, 5000);
+    const handleWakeUp = () => {
+      if (document.visibilityState === 'visible') {
+        fetchNotifications();
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [user]);
+    window.addEventListener('focus', fetchNotifications);
+    document.addEventListener('visibilitychange', handleWakeUp);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchNotifications);
+      document.removeEventListener('visibilitychange', handleWakeUp);
+    };
+  }, [user, location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -228,15 +259,20 @@ function Header() {
                 )}
               </button>
 
-               {/* User Info (Desktop) */}
-              <div className="hidden md:flex flex-col items-end">
+              {/* User Info (Desktop) */}
+              <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(true)}
+                className="hidden md:flex flex-col items-end rounded-xl px-3 py-2 text-right hover:bg-white/60 dark:hover:bg-gray-800/70 transition-colors"
+                title="Lihat detail akun"
+              >
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">
-                    {user.isAdmin === 1 ? 'System Admin' : 'Operator'}
+                    {user.isAdmin === 1 ? 'Administrator Sistem' : (user.clinicType || 'Operator')}
                 </span>
                 <span className="text-sm text-gray-700 dark:text-gray-200 font-medium leading-none">
                   {user.displayName || user.email?.split('@')[0]}
                 </span>
-              </div>
+              </button>
 
               {/* Mobile Menu Button */}
               <button
@@ -321,11 +357,18 @@ function Header() {
                     </Link>
                 </>
             )}
-            <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
-              <div className="px-3 py-2">
+              <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAccountModalOpen(true);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
                 <span className="block text-xs text-gray-500 dark:text-gray-500 font-bold uppercase">Login sebagai</span>
                 <span className="block text-sm font-medium text-gray-900 dark:text-white">{user.email}</span>
-              </div>
+              </button>
               <button
                 onClick={() => {
                   handleLogout();
@@ -334,6 +377,82 @@ function Header() {
                 className="w-full text-left block px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
               >
                 Keluar Aplikasi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {user && isAccountModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/60 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-400">Detail Akun</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900 dark:text-white">
+                  {user.displayName || user.email?.split('@')[0]}
+                </h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(false)}
+                className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className={`mt-5 rounded-2xl border p-4 ${
+              isDentalClinic
+                ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/30 dark:bg-emerald-900/10'
+                : 'border-primary-100 bg-primary-50/60 dark:border-primary-900/30 dark:bg-primary-900/10'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-widest text-gray-500">Jenis Praktik</span>
+                <span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                  isDentalClinic
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-primary-600 text-white'
+                }`}>
+                  {user.clinicType || '-'}
+                </span>
+              </div>
+              <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                {isDentalClinic
+                  ? 'Akun ini seharusnya memakai tema hijau mint dan form pelayanan gigi khusus.'
+                  : 'Akun ini memakai alur klinik standar sesuai jenis praktik yang tersimpan.'}
+              </p>
+            </div>
+
+              <div className="mt-5 space-y-3 text-sm">
+                <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
+                  <span className="text-gray-500 dark:text-gray-400">Status</span>
+                  <span className="font-bold text-gray-900 dark:text-white">{user.status}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
+                  <span className="text-gray-500 dark:text-gray-400">Paket</span>
+                  <span className="font-bold text-gray-900 dark:text-white">{user.subscriptionPlan || '-'}</span>
+                </div>
+              <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
+                <span className="text-gray-500 dark:text-gray-400">Aktif sampai</span>
+                <span className="font-bold text-gray-900 dark:text-white">{formatValidUntil(user.validUntil)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
+                <span className="text-gray-500 dark:text-gray-400">Peran</span>
+                <span className="font-bold text-gray-900 dark:text-white">{user.isAdmin === 1 ? 'Administrator Sistem' : 'Operator Klinik'}</span>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(false)}
+                className="rounded-2xl bg-primary-600 px-5 py-3 text-sm font-black text-white hover:bg-primary-700"
+              >
+                Tutup
               </button>
             </div>
           </div>

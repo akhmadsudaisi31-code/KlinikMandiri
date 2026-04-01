@@ -6,27 +6,38 @@ import { useNavigate } from 'react-router-dom';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import toast from 'react-hot-toast';
+import { getExaminationQueueLabel, getExaminationUnitLabel, isDentalClinicType } from '../utils/clinic';
+import { subscribePatientQueueUpdate } from '../utils/patientQueueSync';
 
 const ITEMS_PER_PAGE = 10;
+const EXAM_COMPLETION_TOLERANCE_MS = 60 * 1000;
 
 function ExaminationList() {
     const [patients, setPatients] = useState<Patient[]>([]);
-    const [examinationStatus, setExaminationStatus] = useState<Record<string, boolean>>({});
+    const [latestExaminationAt, setLatestExaminationAt] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const navigate = useNavigate();
     const { user } = useAuth();
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const isDentalClinic = isDentalClinicType(user?.clinicType);
+    const examinationUnitLabel = getExaminationUnitLabel(user?.clinicType);
+    const examinationQueueLabel = getExaminationQueueLabel(user?.clinicType);
 
     useEffect(() => {
-        setLoading(true);
         if (!user) {
             setLoading(false);
             return;
         }
 
-        const fetchPatients = async () => {
+        let isMounted = true;
+
+        const fetchPatients = async (showLoading = false) => {
+             if (showLoading) {
+                 setLoading(true);
+             }
+
              try {
                  const start = startOfDay(selectedDate).getTime();
                  const end = endOfDay(selectedDate).getTime();
@@ -40,19 +51,32 @@ function ExaminationList() {
                  });
                  // Sort by updatedAt descending
                  filtered.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
-                 setPatients(filtered);
+                 if (isMounted) {
+                     setPatients(filtered);
+                 }
              } catch (e) {
                  console.error(e);
                  toast.error("Gagal memuat data pasien");
              } finally {
-                 setLoading(false);
+                 if (isMounted) {
+                     setLoading(false);
+                 }
              }
         };
 
-        fetchPatients();
+        fetchPatients(true);
+
+        const unsubscribeQueueSync = subscribePatientQueueUpdate(() => {
+            fetchPatients();
+        });
+
+        return () => {
+            isMounted = false;
+            unsubscribeQueueSync();
+        };
     }, [user, selectedDate]);
 
-    // Fetch examination status for all patients (Selected Date)
+    // Fetch latest examination time for all patients on selected date
     useEffect(() => {
         if (!user) return;
         const start = startOfDay(selectedDate).toISOString();
@@ -61,11 +85,16 @@ function ExaminationList() {
         const fetchStatus = async () => {
              try {
                   const exams = await api.get(`/examinations?startDate=${start}&endDate=${end}`);
-                  const status: Record<string, boolean> = {};
+                  const latestByPatient: Record<string, string> = {};
                   (exams || []).forEach((e: any) => {
-                       if (e.patientId) status[e.patientId] = true;
+                       if (!e.patientId) return;
+                       const examTime = String(e.createdAt || e.date || '');
+                       if (!examTime) return;
+                       if (!latestByPatient[e.patientId] || new Date(examTime).getTime() > new Date(latestByPatient[e.patientId]).getTime()) {
+                           latestByPatient[e.patientId] = examTime;
+                       }
                   });
-                  setExaminationStatus(status);
+                  setLatestExaminationAt(latestByPatient);
              } catch (e) {
                   console.error(e);
              }
@@ -75,9 +104,9 @@ function ExaminationList() {
     }, [user, selectedDate]);
 
     const handleRemoveFromQueue = async (patientId: string, patientName: string) => {
-        if (window.confirm(`Hapus ${patientName} dari antrian pemeriksaan? (Data pasien tidak akan terhapus)`)) {
+        if (window.confirm(`Hapus ${patientName} dari antrian ${examinationQueueLabel}? (Data pasien tidak akan terhapus)`)) {
             try {
-                await api.put(`/patients/${patientId}`, { poli: "Umum" });
+                await api.put(`/patients/${patientId}`, { poli: "Pendaftaran" });
                 setPatients(prev => prev.filter(p => p.id !== patientId));
             } catch (error) {
                 console.error("Error removing from queue: ", error);
@@ -92,7 +121,7 @@ function ExaminationList() {
                 type: 'CALL_PATIENT',
                 patientId: patient.id,
                 patientName: patient.name,
-                message: `Panggilan untuk Pasien: ${patient.name} (${patient.rm}) - MASUK KE RUANG PEMERIKSAAN`,
+                message: `Panggilan untuk Pasien: ${patient.name} (${patient.rm}) - MASUK KE ${examinationUnitLabel.toUpperCase()}`,
                 read: false,
                 createdAt: new Date().toISOString(),
                 toRole: 'pendaftar',
@@ -122,13 +151,25 @@ function ExaminationList() {
 
     const totalPages = Math.ceil(filteredPatients.length / ITEMS_PER_PAGE);
 
+    const hasCompletedCurrentQueue = (patient: Patient) => {
+        const latestExamAt = latestExaminationAt[patient.id];
+        if (!latestExamAt) return false;
+
+        const queueEnteredAt = patient.updatedAt ? new Date(patient.updatedAt).getTime() : 0;
+        const examCompletedAt = new Date(latestExamAt).getTime();
+
+        return examCompletedAt + EXAM_COMPLETION_TOLERANCE_MS >= queueEnteredAt;
+    };
+
     return (
         <div className="space-y-6 pb-20">
             {/* Header Section */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-green-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-2xl border border-green-100 dark:border-dark-border transition-colors">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Poli Pemeriksaan</h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Daftar pasien yang terdaftar untuk pemeriksaan.</p>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">{examinationUnitLabel}</h1>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {isDentalClinic ? 'Daftar pasien yang siap masuk pelayanan dokter gigi.' : 'Daftar pasien yang terdaftar untuk pemeriksaan.'}
+                    </p>
                 </div>
                 <div className="flex items-center gap-2 text-sm bg-green-100 dark:bg-green-900/30 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-green-600 dark:text-green-400">
@@ -204,13 +245,19 @@ function ExaminationList() {
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                                     </svg>
                                                 </div>
-                                                <p className="font-medium">Tidak ada pasien di poli pemeriksaan.</p>
-                                                <p className="text-sm mt-1">Daftarkan pasien baru dengan poli "Pemeriksaan".</p>
+                                                <p className="font-medium">Tidak ada pasien di {examinationQueueLabel}.</p>
+                                                <p className="text-sm mt-1">
+                                                    Daftarkan pasien baru dengan poli "{examinationUnitLabel}".
+                                                </p>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : (
                                     paginatedPatients.map((patient) => (
+                                        (() => {
+                                            const isCompleted = hasCompletedCurrentQueue(patient);
+
+                                            return (
                                         <tr
                                             key={patient.id}
                                             onClick={() => navigate(`/pemeriksaan/${patient.id}`)}
@@ -226,17 +273,24 @@ function ExaminationList() {
                                                             <div className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-green-700 dark:group-hover:text-green-400 transition-colors">
                                                                 {patient.name}
                                                             </div>
-                                                            {examinationStatus[patient.id] && (
+                                                            {isCompleted ? (
                                                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
                                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
                                                                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
                                                                     </svg>
                                                                     Sudah Diperiksa
                                                                 </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                                                                        <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zm-8.75-3.25a.75.75 0 011.5 0v3.19l2.28 1.315a.75.75 0 11-.75 1.299l-2.655-1.53A.75.75 0 019.25 10V6.75z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                    Belum Diperiksa
+                                                                </span>
                                                             )}
                                                         </div>
                                                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                                            Masuk Poli: {patient.updatedAt ? format(new Date(patient.updatedAt), 'dd MMM yyyy HH:mm', { locale: localeId }) : '-'}
+                                                            Masuk {examinationUnitLabel}: {patient.updatedAt ? format(new Date(patient.updatedAt), 'dd MMM yyyy HH:mm', { locale: localeId }) : '-'}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -307,6 +361,8 @@ function ExaminationList() {
                                                 </button>
                                             </td>
                                         </tr>
+                                            );
+                                        })()
                                     ))
                                 )}
                             </tbody>

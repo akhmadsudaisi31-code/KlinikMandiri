@@ -46,7 +46,7 @@ function Login() {
           KlinikMandiri
         </h2>
         <p className="mt-2 text-sm text-gray-600 dark:text-dark-muted">
-          Sistem Rekam Medis Elektronik Terintegrasi
+          Bantu klinik mengelola pasien, pemeriksaan, dan laporan harian
         </p>
       </div>
 
@@ -136,9 +136,16 @@ function Login() {
                 Daftar di sini
              </Link>
           </div>
+
+          <div className="mt-4 text-center text-sm">
+             <span className="text-gray-600 dark:text-gray-400">Ingin mencoba aplikasinya dulu? </span>
+             <Link to="/demo" className="font-medium text-cyan-600 hover:text-cyan-500 dark:text-cyan-400">
+                Masuk ke akun demo
+             </Link>
+          </div>
         </div>
         <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
-          &copy; 2026 KlinikMandiri. All rights reserved.
+          &copy; {new Date().getFullYear()} KlinikMandiri. Sistem yang membantu klinik mengelola pasien, pemeriksaan, dan laporan harian.
         </p>
       </div>
     </div>

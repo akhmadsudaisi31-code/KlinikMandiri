@@ -1,4 +1,5 @@
 export const GENDERS = ["Laki-laki", "Perempuan"] as const;
+export const CLINIC_TYPES = ["Bidan", "Perawat", "Dokter", "Dokter Gigi"] as const;
 export const CATEGORIES = [
   "Tuan",
   "Nyonya",
@@ -7,7 +8,7 @@ export const CATEGORIES = [
   "Anak",
   "Bayi",
 ] as const;
-export const POLI_OPTIONS = ["Umum", "Pemeriksaan"] as const;
+export const POLI_OPTIONS = ["Pendaftaran", "Pemeriksaan"] as const;
 export const MEDICINE_UNITS = [
   "Tablet",
   "Kapsul",
@@ -19,6 +20,7 @@ export const MEDICINE_UNITS = [
 ] as const;
 
 export type Gender = (typeof GENDERS)[number];
+export type ClinicType = (typeof CLINIC_TYPES)[number];
 export type Category = (typeof CATEGORIES)[number];
 export type PoliType = (typeof POLI_OPTIONS)[number];
 export type MedicineUnit = (typeof MEDICINE_UNITS)[number];
@@ -35,7 +37,7 @@ export interface Patient {
   ageYears: number | null;
   ageMonths: number | null;
   ageDisplay: string;
-  poli: PoliType; // Poli tujuan: Umum atau Pemeriksaan
+  poli: PoliType; // Poli tujuan: Pendaftaran atau Pemeriksaan
   allergies?: string; // Data alergi permanen
   createdAt: string;
   updatedAt: string;
@@ -110,6 +112,7 @@ export interface MedicineItem {
   medicineName: string;
   quantity: number;
   unit: MedicineUnit;
+  aturanMinum?: string;
 }
 
 // --- TIPE BARU UNTUK KUNJUNGAN ---
@@ -130,6 +133,7 @@ export const EXAM_CATEGORIES = [
   "Umum",
   "Lansia",
   "Bumil",
+  "Odontologi",
 ] as const;
 export type ExamCategory = (typeof EXAM_CATEGORIES)[number];
 

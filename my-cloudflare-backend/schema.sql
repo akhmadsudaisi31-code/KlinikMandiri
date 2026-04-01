@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS patients (
     ageYears INTEGER,
     ageMonths INTEGER,
     ageDisplay TEXT,
-    poli TEXT DEFAULT 'Umum',
+    poli TEXT DEFAULT 'Pendaftaran',
     allergies TEXT,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -121,6 +121,18 @@ CREATE TABLE IF NOT EXISTS notifications (
     FOREIGN KEY (clinicId) REFERENCES clinics(id)
 );
 
+-- Tabel Referensi ICD
+CREATE TABLE IF NOT EXISTS icd_codes (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL, -- who_icd10_2019 / icd10cm_2026
+    code TEXT NOT NULL,
+    code_compact TEXT NOT NULL,
+    title TEXT NOT NULL,
+    search_text TEXT NOT NULL,
+    is_terminal INTEGER DEFAULT 1,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================================
 -- INDEXES UNTUK OPTIMASI PERFORMA CLOUDFLARE D1 (Menghindari Full Table Scan)
 -- ============================================================================
@@ -133,3 +145,5 @@ CREATE INDEX IF NOT EXISTS idx_examinations_date ON examinations(clinicId, date)
 CREATE INDEX IF NOT EXISTS idx_visits_clinicId ON visits(clinicId);
 CREATE INDEX IF NOT EXISTS idx_visits_patientId ON visits(patientId);
 CREATE INDEX IF NOT EXISTS idx_notifications_clinicId ON notifications(clinicId);
+CREATE INDEX IF NOT EXISTS idx_icd_codes_source_code ON icd_codes(source, code);
+CREATE INDEX IF NOT EXISTS idx_icd_codes_source_compact ON icd_codes(source, code_compact);

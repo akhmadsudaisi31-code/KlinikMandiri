@@ -9,6 +9,8 @@ import { formatRupiah, parseRupiah } from '../utils/format';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
+import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
+import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 
 type VisitFormData = {
   diagnosis: string;
@@ -30,6 +32,8 @@ function PatientDetail() {
   // Detail Modal
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const examinationUnitLabel = getExaminationUnitLabel(user?.clinicType);
+  const examinationQueueLabel = getExaminationQueueLabel(user?.clinicType);
 
   const { register, handleSubmit, reset, control, formState: { isSubmitting } } = useForm<VisitFormData>();
 
@@ -74,12 +78,13 @@ function PatientDetail() {
 
   const handleAddToPoli = async () => {
     if (!patient || !user) return;
-    if (window.confirm(`Tambahkan ${patient.name} ke antrian Poli Pemeriksaan?`)) {
+    if (window.confirm(`Tambahkan ${patient.name} ke antrian ${examinationUnitLabel}?`)) {
       try {
         await api.put(`/patients/${patient.id}`, {
           poli: "Pemeriksaan",
           updatedAt: new Date().toISOString()
         });
+        broadcastPatientQueueUpdate({ patientId: patient.id, source: 'patient-detail' });
 
         // Kirim Notifikasi ke Pemeriksa
         try {
@@ -87,7 +92,7 @@ function PatientDetail() {
              type: 'NEW_PATIENT',
              patientId: patient.id,
              patientName: patient.name,
-             message: `Pasien: ${patient.name} dikirim ke antrian pemeriksaan.`,
+             message: `Pasien: ${patient.name} dikirim ke antrian ${examinationQueueLabel}.`,
              read: false,
              createdAt: new Date().toISOString(),
              toRole: 'pemeriksa',
@@ -199,7 +204,7 @@ function PatientDetail() {
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Kirim ke Poli Pemeriksaan
+          Kirim ke {examinationUnitLabel}
         </button>
 
         <button onClick={() => navigate('/')} className="w-full py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-dark-surface hover:bg-gray-50 dark:hover:bg-gray-800 transition-all shadow-sm hover:shadow-md mb-3">
@@ -379,7 +384,7 @@ function PatientDetail() {
                                 <div className="flex flex-wrap gap-2">
                                   {(item as Examination).medicines.map((med, idx) => (
                                     <span key={idx} className="bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-2 py-1 rounded-lg text-sm border border-purple-100 dark:border-purple-800">
-                                      {med.medicineName} ({med.quantity} {med.unit})
+                                      {med.medicineName} ({med.quantity} {med.unit}{med.aturanMinum ? `, ${med.aturanMinum}` : ""})
                                     </span>
                                   ))}
                                 </div>

@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../api';
+import { ClinicType } from '../types';
+import { getClinicThemeClass } from '../utils/clinic';
 
 export interface User {
   uid: string;
@@ -8,7 +10,7 @@ export interface User {
   status: 'pending' | 'active' | 'inactive';
   isAdmin: number;
   subscriptionPlan?: string;
-  clinicType?: 'Bidan' | 'Perawat' | 'Dokter';
+  clinicType?: ClinicType;
   validUntil?: string;
 }
 
@@ -67,12 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sync theme with user.clinicType
   useEffect(() => {
-    document.body.classList.remove('theme-bidan', 'theme-perawat', 'theme-dokter');
-    if (user && user.clinicType) {
-      document.body.classList.add(`theme-${user.clinicType.toLowerCase()}`);
-    } else {
-      document.body.classList.add('theme-bidan'); // Default
-    }
+    document.body.classList.remove('theme-bidan', 'theme-perawat', 'theme-dokter', 'theme-dokter-gigi');
+    document.body.classList.add(getClinicThemeClass(user?.clinicType));
   }, [user]);
 
   const login = (token: string, userData: User) => {

@@ -6,6 +6,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import toast from 'react-hot-toast';
+import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
+import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -16,6 +18,8 @@ function PatientList() {
   const [currentPage, setCurrentPage] = useState(1);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const examinationUnitLabel = getExaminationUnitLabel(user?.clinicType);
+  const examinationQueueLabel = getExaminationQueueLabel(user?.clinicType);
 
   useEffect(() => {
     setLoading(true);
@@ -53,12 +57,13 @@ function PatientList() {
   };
 
   const handleAddToPoli = async (patientId: string, patientName: string) => {
-    if (window.confirm(`Tambahkan ${patientName} ke poli Pemeriksaan?`)) {
+    if (window.confirm(`Tambahkan ${patientName} ke ${examinationUnitLabel}?`)) {
       try {
         await api.put(`/patients/${patientId}`, {
           poli: "Pemeriksaan",
           updatedAt: new Date().toISOString()
         });
+        broadcastPatientQueueUpdate({ patientId, source: 'patient-list' });
 
         // Kirim Notifikasi ke Pemeriksa
         try {
@@ -66,7 +71,7 @@ function PatientList() {
              type: 'NEW_PATIENT',
              patientId: patientId,
              patientName: patientName,
-             message: `Pasien: ${patientName} dikirim ke antrian pemeriksaan.`,
+             message: `Pasien: ${patientName} dikirim ke antrian ${examinationQueueLabel}.`,
              read: false,
              createdAt: new Date().toISOString(),
              toRole: 'pemeriksa',
@@ -78,7 +83,7 @@ function PatientList() {
 
       } catch (error) {
         console.error("Error updating patient: ", error);
-        toast.error("Gagal menambahkan pasien ke poli.");
+        toast.error(`Gagal menambahkan pasien ke ${examinationUnitLabel}.`);
       }
     }
   };

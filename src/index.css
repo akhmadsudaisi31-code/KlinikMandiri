@@ -89,6 +89,35 @@
   --glow-color: 14, 165, 233;
 }
 
+.theme-dokter-gigi {
+  /* Dental Theme: mint/cyan with a cleaner clinical identity */
+  --color-primary-50: 236 253 245;
+  --color-primary-100: 209 250 229;
+  --color-primary-200: 167 243 208;
+  --color-primary-300: 110 231 183;
+  --color-primary-400: 52 211 153;
+  --color-primary-500: 16 185 129;
+  --color-primary-600: 5 150 105;
+  --color-primary-700: 4 120 87;
+  --color-primary-800: 6 95 70;
+  --color-primary-900: 6 78 59;
+  --color-primary-950: 2 44 34;
+
+  --color-secondary-400: 103 232 249;
+  --color-secondary-500: 34 211 238;
+  --color-secondary-600: 8 145 178;
+  --color-secondary-700: 14 116 144;
+
+  --color-accent-400: 125 211 252;
+  --color-accent-500: 14 165 233;
+  --color-accent-600: 2 132 199;
+  --color-accent-700: 3 105 161;
+
+  --bg-gradient-start: 164, 72%, 92%;
+  --bg-gradient-end: 190, 100%, 94%;
+  --glow-color: 16, 185, 129;
+}
+
 @layer base {
   body {
     background-color: rgb(var(--color-primary-50));

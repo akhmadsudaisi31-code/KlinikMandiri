@@ -3,8 +3,9 @@ import { useForm, SubmitHandler } from 'react-hook-form';
 import { api } from '../api';
 import { useNavigate, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { SUBSCRIPTION_PLANS } from '../types';
+import { CLINIC_TYPES, ClinicType, SUBSCRIPTION_PLANS } from '../types';
 import toast from 'react-hot-toast';
+import { getClinicThemeClass } from '../utils/clinic';
 
 type RegisterFormInputs = {
   clinicName: string;
@@ -12,7 +13,7 @@ type RegisterFormInputs = {
   password: string;
   phone: string;
   subscriptionPlan: string;
-  clinicType: 'Bidan' | 'Perawat' | 'Dokter';
+  clinicType: ClinicType;
 };
 
 
@@ -30,7 +31,7 @@ function Register() {
   const { user, loading, login: authLogin } = useAuth();
   const selectedPlan = watch('subscriptionPlan');
   const selectedType = watch('clinicType');
-  const themeClass = `theme-${selectedType.toLowerCase()}`;
+  const themeClass = getClinicThemeClass(selectedType);
 
   const onSubmit: SubmitHandler<RegisterFormInputs> = async (data) => {
     setError(null);
@@ -44,7 +45,8 @@ function Register() {
         displayName: response.user.name,
         status: response.user.status,
         isAdmin: response.user.isAdmin,
-        subscriptionPlan: response.user.subscriptionPlan
+        subscriptionPlan: response.user.subscriptionPlan,
+        clinicType: response.user.clinicType,
       };
       
       authLogin(response.token, userData);
@@ -64,8 +66,8 @@ function Register() {
     <div className={`min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 transition-colors duration-500 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 ${themeClass}`}>
       <div className="sm:mx-auto sm:w-full sm:max-w-xl">
         <div className="text-center">
-            <h2 className="text-4xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Register <span className="transition-colors duration-300 text-primary-600">KlinikMandiri</span></h2>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 font-bold uppercase tracking-widest">Sistem Rekam Medis Digital & Terjangkau</p>
+            <h2 className="text-4xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Daftarkan <span className="transition-colors duration-300 text-primary-600">KlinikMandiri</span></h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 font-bold uppercase tracking-widest">Mulai kelola pasien dan pelayanan klinik dengan lebih rapi</p>
         </div>
 
         <div className="mt-8 glass-card p-8 rounded-3xl shadow-2xl border border-white/60 dark:border-dark-border">
@@ -73,8 +75,8 @@ function Register() {
             
             <div className="mb-6">
               <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-3 text-center">Jenis Praktek</label>
-              <div className="grid grid-cols-3 gap-3">
-                {(['Bidan', 'Perawat', 'Dokter'] as const).map((type) => (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {CLINIC_TYPES.map((type) => (
                   <label 
                     key={type}
                     className={`relative cursor-pointer p-3 rounded-xl border-2 transition-all flex flex-col items-center text-center ${
@@ -155,7 +157,7 @@ function Register() {
             </div>
 
             <div className="pt-4">
-              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Pilih Paket Berlangganan (Harga Terjangkau)</label>
+              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Pilih Paket Langganan</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {SUBSCRIPTION_PLANS.map((plan) => (
                   <label 
@@ -181,7 +183,7 @@ function Register() {
                 ))}
               </div>
               <div className="mt-4 p-4 bg-white/50 dark:bg-gray-800/50 rounded-2xl">
-                 <p className="text-[10px] font-black uppercase mb-2 italic text-center transition-colors duration-300 text-primary-600">Fitur Lengkap Semua Paket:</p>
+                 <p className="text-[10px] font-black uppercase mb-2 italic text-center transition-colors duration-300 text-primary-600">Semua paket sudah termasuk:</p>
                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                     {SUBSCRIPTION_PLANS[0].features.map((f, i) => (
                         <div key={i} className="flex items-center gap-1.5 text-[9px] font-bold text-gray-500 uppercase">

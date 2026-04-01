@@ -235,6 +235,13 @@ const getEmailTemplate = (type: 'success' | 'rejected', clinicName: string): str
   `;
 }
 
+const getValidUntilQuery = (subscriptionPlan?: string): string => {
+  if (subscriptionPlan === 'MONTHLY') return "datetime('now', '+1 month')";
+  if (subscriptionPlan === '2YEARS') return "datetime('now', '+2 years')";
+  if (subscriptionPlan === 'LIFETIME') return "datetime('now', '+100 years')";
+  return "datetime('now', '+1 year')";
+}
+
 // --- ADMIN ENDPOINTS ---
 app.get('/api/admin/clinics', async (c) => {
     const payload: any = c.get('jwtPayload')
@@ -254,11 +261,7 @@ app.put('/api/admin/clinics/:id', async (c) => {
     const clinic: any = await c.env.DB.prepare('SELECT id FROM clinics WHERE id = ?').bind(id).first()
     if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
 
-    // Calculate validUntil dynamically and add to SET query
-    let validUntilQuery = "validUntil = datetime('now', '+1 year')"; // Default YEARLY
-    if (body.subscriptionPlan === 'MONTHLY') validUntilQuery = "validUntil = datetime('now', '+1 month')";
-    if (body.subscriptionPlan === '2YEARS') validUntilQuery = "validUntil = datetime('now', '+2 years')";
-    if (body.subscriptionPlan === 'LIFETIME') validUntilQuery = "validUntil = datetime('now', '+100 years')";
+    const validUntilQuery = `validUntil = ${getValidUntilQuery(body.subscriptionPlan)}`
 
     await c.env.DB.prepare(
         `UPDATE clinics SET name = ?, email = ?, phone = ?, subscriptionPlan = ?, ${validUntilQuery} WHERE id = ?`
@@ -306,14 +309,11 @@ app.put('/api/admin/clinics/:id/activate', async (c) => {
     
     const id = c.req.param('id')
     // Get clinic info for email
-    const clinic: any = await c.env.DB.prepare('SELECT email, name FROM clinics WHERE id = ?').bind(id).first()
+    const clinic: any = await c.env.DB.prepare('SELECT email, name, subscriptionPlan FROM clinics WHERE id = ?').bind(id).first()
     
     if (!clinic) return c.json({ error: 'Klinik tidak ditemukan' }, 404)
 
-    let validUntilQuery = "datetime('now', '+1 year')"; // Default YEARLY
-    if (clinic.subscriptionPlan === 'MONTHLY') validUntilQuery = "datetime('now', '+1 month')";
-    if (clinic.subscriptionPlan === '2YEARS') validUntilQuery = "datetime('now', '+2 years')";
-    if (clinic.subscriptionPlan === 'LIFETIME') validUntilQuery = "datetime('now', '+100 years')";
+    const validUntilQuery = getValidUntilQuery(clinic.subscriptionPlan)
 
     await c.env.DB.prepare(`UPDATE clinics SET status = "active", validUntil = ${validUntilQuery} WHERE id = ?`).bind(id).run()
     
@@ -439,7 +439,56 @@ app.put('/api/auth/renew', async (c) => {
     await c.env.DB.prepare('UPDATE clinics SET status = "pending", subscriptionPlan = ? WHERE id = ?')
         .bind(body.subscriptionPlan, payload.uid).run()
 
-    return c.json({ success: true })
+  return c.json({ success: true })
+})
+
+app.get('/api/icd/search', async (c) => {
+  const source = String(c.req.query('source') || 'who_icd10_2019')
+  const q = String(c.req.query('q') || '').trim()
+  const limit = Math.min(Number(c.req.query('limit') || 20), 50)
+  const normalized = q.toLowerCase()
+  const compact = normalized.replace(/\./g, '').replace(/\s+/g, '')
+
+  let sql = `
+    SELECT source, code, title
+    FROM icd_codes
+    WHERE source = ?
+  `
+  const params: any[] = [source]
+
+  if (normalized) {
+    sql += `
+      AND (
+        lower(code) LIKE ?
+        OR lower(code_compact) LIKE ?
+        OR lower(title) LIKE ?
+        OR lower(search_text) LIKE ?
+      )
+    `
+    params.push(`${normalized}%`, `${compact}%`, `%${normalized}%`, `%${normalized}%`)
+    sql += `
+      ORDER BY
+        CASE
+          WHEN lower(code) = ? THEN 0
+          WHEN lower(code_compact) = ? THEN 1
+          WHEN lower(code) LIKE ? THEN 2
+          WHEN lower(code_compact) LIKE ? THEN 3
+          WHEN lower(title) LIKE ? THEN 4
+          ELSE 5
+        END,
+        length(code) ASC,
+        code ASC
+    `
+    params.push(normalized, compact, `${normalized}%`, `${compact}%`, `${normalized}%`)
+  } else {
+    sql += ' ORDER BY code ASC '
+  }
+
+  sql += ' LIMIT ?'
+  params.push(limit)
+
+  const { results } = await c.env.DB.prepare(sql).bind(...params).all()
+  return c.json(results)
 })
 
 // Helper untuk ambil clinicId dari Token
@@ -651,9 +700,18 @@ app.post('/api/visits', async (c) => {
 // --- NOTIFICATIONS ---
 app.get('/api/notifications', async (c) => {
   const clinicId = getClinicId(c)
-  const { results } = await c.env.DB.prepare(
-    'SELECT * FROM notifications WHERE clinicId = ? AND isRead = 0 ORDER BY createdAt DESC LIMIT 20'
-  ).bind(clinicId).all()
+  const toRole = c.req.query('toRole')
+  let query = 'SELECT * FROM notifications WHERE clinicId = ? AND isRead = 0'
+  const params: any[] = [clinicId]
+
+  if (toRole) {
+    query += ' AND toRole = ?'
+    params.push(toRole)
+  }
+
+  query += ' ORDER BY createdAt DESC LIMIT 20'
+
+  const { results } = await c.env.DB.prepare(query).bind(...params).all()
   return c.json(results)
 })
 

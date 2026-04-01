@@ -10,6 +10,12 @@ import { format, addDays, subMonths, addYears } from "date-fns";
 import toast from "react-hot-toast";
 import { MedicineSelectorModal } from "../components/MedicineSelectorModal";
 import { ExaminationDetailModal } from "../components/ExaminationDetailModal";
+import { OdontogramEditor } from "../components/OdontogramEditor";
+import { Icd10Autocomplete } from "../components/Icd10Autocomplete";
+import { GENERAL_ICD10_ITEMS, Icd10Item } from "../data/icd10";
+import { DENTAL_ICD10_ITEMS } from "../data/dentalIcd10";
+import { createDefaultOdontogram, normalizeOdontogram, OdontogramTooth } from "../utils/dental";
+import { getExamPageTitle, isDentalClinicType } from "../utils/clinic";
 
 const schema = z.object({
   // S
@@ -81,6 +87,25 @@ const schema = z.object({
   metodeKb: z.string().optional(),
   keluhanKb: z.string().optional(),
   tglKembaliKb: z.string().optional(),
+
+  // Dental Data
+  dentalVisitType: z.string().optional(),
+  dentalPainScale: z.string().optional(),
+  dentalMedicalHistory: z.string().optional(),
+  dentalHabits: z.string().optional(),
+  dentalTreatmentHistory: z.string().optional(),
+  dentalExtraOral: z.string().optional(),
+  dentalIntraOral: z.string().optional(),
+  dentalOcclusion: z.string().optional(),
+  dentalOralHygiene: z.string().optional(),
+  dentalGingiva: z.string().optional(),
+  dentalPlaqueIndex: z.string().optional(),
+  dentalCalculus: z.string().optional(),
+  dentalPalpation: z.string().optional(),
+  dentalPercussion: z.string().optional(),
+  dentalMobility: z.string().optional(),
+  dentalPocketDepth: z.string().optional(),
+  dentalBleedingOnProbing: z.string().optional(),
 });
 
 type ExaminationFormData = z.infer<typeof schema>;
@@ -108,6 +133,10 @@ function ExaminationForm() {
   const [allergyList, setAllergyList] = useState<string[]>([]);
   const [newAllergy, setNewAllergy] = useState("");
   const [biayaDisplay, setBiayaDisplay] = useState("");
+  const [odontogram, setOdontogram] = useState<OdontogramTooth[]>(createDefaultOdontogram());
+  const [icd10Items, setIcd10Items] = useState<Icd10Item[]>([]);
+  const isDentalClinic = isDentalClinicType(user?.clinicType);
+  const examPageTitle = getExamPageTitle(user?.clinicType);
 
   const {
     register,
@@ -181,6 +210,25 @@ function ExaminationForm() {
       keluhanKb: "",
       tglKembaliKb: "",
 
+      // Dental Data
+      dentalVisitType: "Baru",
+      dentalPainScale: "",
+      dentalMedicalHistory: "",
+      dentalHabits: "",
+      dentalTreatmentHistory: "",
+      dentalExtraOral: "",
+      dentalIntraOral: "",
+      dentalOcclusion: "",
+      dentalOralHygiene: "",
+      dentalGingiva: "",
+      dentalPlaqueIndex: "",
+      dentalCalculus: "",
+      dentalPalpation: "",
+      dentalPercussion: "",
+      dentalMobility: "",
+      dentalPocketDepth: "",
+      dentalBleedingOnProbing: "",
+
       // Persalinan Optional Toggle
       isPersalinan: false,
     },
@@ -190,6 +238,10 @@ function ExaminationForm() {
   const watchHpht = watch("hpht");
   const watchIsKb = watch("isKb");
   const watchIsPersalinan = watch("isPersalinan");
+  const watchIcd10 = watch("icd10");
+  const icd10Placeholder = isDentalClinic
+    ? "Cari kode atau nama ICD-10 gigi..."
+    : "Cari kode atau nama ICD-10...";
   // const [htpPreview, setHtpPreview] = useState<string>("");
 
   const formatBiayaDisplay = (value: string) => {
@@ -204,6 +256,77 @@ function ExaminationForm() {
     setValue("biaya", rawValue, { shouldDirty: true, shouldValidate: true });
   };
 
+  const handleSelectIcd10 = (item: { code: string; title: string }) => {
+    setValue("icd10", item.code, { shouldDirty: true, shouldValidate: true });
+    const currentDiagnosis = watch("diagnosa");
+    if (!currentDiagnosis || currentDiagnosis.trim() === "") {
+      setValue("diagnosa", item.title, { shouldDirty: true, shouldValidate: true });
+    }
+  };
+
+  useEffect(() => {
+    const fallbackItems = (
+      isDentalClinic
+        ? [
+            ...DENTAL_ICD10_ITEMS.map((item) => ({
+              ...item,
+              source: "who_icd10_2019",
+              sourceLabel: "WHO",
+            })),
+            ...GENERAL_ICD10_ITEMS.map((item) => ({
+              ...item,
+              source: "who_icd10_2019",
+              sourceLabel: "WHO",
+            })),
+          ]
+        : GENERAL_ICD10_ITEMS.map((item) => ({
+            ...item,
+            source: "who_icd10_2019",
+            sourceLabel: "WHO",
+          }))
+    ).slice(0, 20);
+
+    const mergeIcdItems = (items: Icd10Item[]) => {
+      const seen = new Set<string>();
+      return items.filter((item) => {
+        const key = `${item.source || "unknown"}:${item.code}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const query = encodeURIComponent(watchIcd10 || "");
+        const [whoResult, cmResult] = await Promise.all([
+          api.get(`/icd/search?source=who_icd10_2019&q=${query}&limit=12`),
+          api.get(`/icd/search?source=icd10cm_2026&q=${query}&limit=12`),
+        ]);
+
+        const normalizedResults = mergeIcdItems([
+          ...((Array.isArray(whoResult) ? whoResult : []).map((item: any) => ({
+            ...item,
+            source: "who_icd10_2019",
+            sourceLabel: "WHO",
+          })) as Icd10Item[]),
+          ...((Array.isArray(cmResult) ? cmResult : []).map((item: any) => ({
+            ...item,
+            source: "icd10cm_2026",
+            sourceLabel: "ICD-10-CM",
+          })) as Icd10Item[]),
+        ]);
+
+        setIcd10Items(normalizedResults.length > 0 ? normalizedResults : fallbackItems);
+      } catch (error) {
+        console.error("Gagal mengambil referensi ICD:", error);
+        setIcd10Items(fallbackItems);
+      }
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [isDentalClinic, watchIcd10]);
+
   // HTP Calculation for Bumil
   useEffect(() => {
     if (watchHpht && watchCategory === "Bumil") {
@@ -217,6 +340,12 @@ function ExaminationForm() {
       }
     }
   }, [watchHpht, watchCategory, setValue]);
+
+  useEffect(() => {
+    if (isDentalClinic) {
+      setValue("examCategory", "Odontologi");
+    }
+  }, [isDentalClinic, setValue]);
 
   useEffect(() => {
     if (!patientId || !user) return;
@@ -281,8 +410,19 @@ function ExaminationForm() {
         medicineName: medicine.name,
         quantity: 1,
         unit: medicine.unit,
+        aturanMinum: "",
       },
     ]);
+  };
+
+  const handleMedicineRuleChange = (medicineId: string, aturanMinum: string) => {
+    setSelectedMedicines((prev) =>
+      prev.map((item) =>
+        item.medicineId === medicineId
+          ? { ...item, aturanMinum }
+          : item,
+      ),
+    );
   };
 
   const handleAddAllergy = () => {
@@ -296,8 +436,20 @@ function ExaminationForm() {
     setAllergyList(allergyList.filter((a) => a !== allergy));
   };
 
+  const parseExtendedData = (value: any) => {
+    if (!value?.extendedData_json) return {};
+    if (typeof value.extendedData_json === "object") return value.extendedData_json;
+    try {
+      return JSON.parse(value.extendedData_json);
+    } catch {
+      return {};
+    }
+  };
+
   const handleEdit = (exam: any) => {
+    const ext = parseExtendedData(exam);
     setEditingExamId(exam.id);
+    setValue("examCategory", ext.category || (isDentalClinic ? "Odontologi" : "Umum"));
     setValue("namaSuami", exam.namaSuami || "");
     setValue("keluhanUtama", exam.keluhanUtama || "");
     setValue("riwayatPenyakitSekarang", exam.riwayatPenyakitSekarang || "");
@@ -314,6 +466,61 @@ function ExaminationForm() {
     setValue("tindakan", exam.tindakan || "");
     setValue("edukasi", exam.edukasi || "");
     setValue("rencanaTindakLanjut", exam.rencanaTindakLanjut || "");
+    setValue("hpht", ext.hpht || "");
+    setValue("hpl", ext.hpl || "");
+    setValue("gpa", ext.gpa || "");
+    setValue("tfu", ext.tfu || "");
+    setValue("djj", ext.djj || "");
+    setValue("leopold", ext.leopold || "");
+    setValue("lingkarKepala", ext.lingkarKepala || "");
+    setValue("lingkarLengan", ext.lingkarLengan || "");
+    setValue("statusImunisasi", ext.statusImunisasi || "");
+    setValue("adlScore", ext.adlScore || "");
+    setValue("statusFungsional", ext.statusFungsional || "");
+    setValue("hamilKe", ext.hamilKe || "");
+    setValue("usiaKehamilan", ext.usiaKehamilan || "");
+    setValue("anakTerkecil", ext.anakTerkecil || "");
+    setValue("statusTT", ext.statusTT || "");
+    setValue("lila", ext.lila || "");
+    setValue("skor", ext.skor || "");
+    setValue("kunjunganAnc", ext.kunjunganAnc || "");
+    setValue("usg", ext.usg || "");
+    setValue("jenisPersalinan", ext.jenisPersalinan || "");
+    setValue("penolong", ext.penolong || "");
+    setValue("tempat", ext.tempat || "");
+    setValue("jenisKelamin", ext.jenisKelamin || "");
+    setValue("tglPartus", ext.tglPartus || "");
+    setValue("jamPartus", ext.jamPartus || "");
+    setValue("as", ext.as || "");
+    setValue("bbl", ext.bbl || "");
+    setValue("pb", ext.pb || "");
+    setValue("lika", ext.lika || "");
+    setValue("vitK", ext.vitK || "");
+    setValue("hb0", ext.hb0 || "");
+    setValue("isPersalinan", Boolean(ext.isPersalinan));
+    setValue("isKb", Boolean(ext.isKb));
+    setValue("akseptor", ext.akseptor || "");
+    setValue("metodeKb", ext.metodeKb || "");
+    setValue("keluhanKb", ext.keluhanKb || "");
+    setValue("tglKembaliKb", ext.tglKembaliKb || "");
+    setValue("dentalVisitType", ext.dentalVisitType || "Baru");
+    setValue("dentalPainScale", ext.dentalPainScale || "");
+    setValue("dentalMedicalHistory", ext.dentalMedicalHistory || "");
+    setValue("dentalHabits", ext.dentalHabits || "");
+    setValue("dentalTreatmentHistory", ext.dentalTreatmentHistory || "");
+    setValue("dentalExtraOral", ext.dentalExtraOral || "");
+    setValue("dentalIntraOral", ext.dentalIntraOral || "");
+    setValue("dentalOcclusion", ext.dentalOcclusion || "");
+    setValue("dentalOralHygiene", ext.dentalOralHygiene || "");
+    setValue("dentalGingiva", ext.dentalGingiva || "");
+    setValue("dentalPlaqueIndex", ext.dentalPlaqueIndex || "");
+    setValue("dentalCalculus", ext.dentalCalculus || "");
+    setValue("dentalPalpation", ext.dentalPalpation || "");
+    setValue("dentalPercussion", ext.dentalPercussion || "");
+    setValue("dentalMobility", ext.dentalMobility || "");
+    setValue("dentalPocketDepth", ext.dentalPocketDepth || "");
+    setValue("dentalBleedingOnProbing", ext.dentalBleedingOnProbing || "");
+    setOdontogram(normalizeOdontogram(ext.odontogram));
     const biayaRaw = exam.biaya ? String(exam.biaya) : "";
     setValue("biaya", biayaRaw);
     setBiayaDisplay(formatBiayaDisplay(biayaRaw));
@@ -324,8 +531,10 @@ function ExaminationForm() {
   const handleCancelEdit = () => {
     setEditingExamId(null);
     reset();
+    setValue("examCategory", isDentalClinic ? "Odontologi" : "Umum");
     setBiayaDisplay("");
     setSelectedMedicines([]);
+    setOdontogram(createDefaultOdontogram());
     setAllergyList(
       patient?.allergies
         ? patient.allergies
@@ -398,6 +607,26 @@ function ExaminationForm() {
           metodeKb: data.metodeKb,
           keluhanKb: data.keluhanKb,
           tglKembaliKb: data.tglKembaliKb,
+
+          // Dental Data
+          dentalVisitType: data.dentalVisitType,
+          dentalPainScale: data.dentalPainScale,
+          dentalMedicalHistory: data.dentalMedicalHistory,
+          dentalHabits: data.dentalHabits,
+          dentalTreatmentHistory: data.dentalTreatmentHistory,
+          dentalExtraOral: data.dentalExtraOral,
+          dentalIntraOral: data.dentalIntraOral,
+          dentalOcclusion: data.dentalOcclusion,
+          dentalOralHygiene: data.dentalOralHygiene,
+          dentalGingiva: data.dentalGingiva,
+          dentalPlaqueIndex: data.dentalPlaqueIndex,
+          dentalCalculus: data.dentalCalculus,
+          dentalPalpation: data.dentalPalpation,
+          dentalPercussion: data.dentalPercussion,
+          dentalMobility: data.dentalMobility,
+          dentalPocketDepth: data.dentalPocketDepth,
+          dentalBleedingOnProbing: data.dentalBleedingOnProbing,
+          odontogram,
         }),
         updatedAt: now,
         updatedBy: user.uid,
@@ -431,7 +660,7 @@ function ExaminationForm() {
         examinationData.createdBy = user.uid;
         await api.post("/examinations", examinationData);
         toast.success(
-          `Pemeriksaan berhasil disimpan. Dialihkan ke Riwayat Pasien.`,
+          `${isDentalClinic ? "Pelayanan gigi" : "Pemeriksaan"} berhasil disimpan. Dialihkan ke Riwayat Pasien.`,
         );
         navigate(`/pasien/${patient.id}`);
       }
@@ -453,11 +682,13 @@ function ExaminationForm() {
           <div>
             <h1 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight">
               {editingExamId
-                ? "Edit Pemeriksaan SOAP"
-                : "Pemeriksaan SOAP Baru"}
+                ? `Edit ${examPageTitle}`
+                : `${examPageTitle} Baru`}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              Standar Pelayanan Rekam Medis Nasional
+              {isDentalClinic
+                ? "Standar pelayanan kedokteran gigi dengan odontogram dewasa."
+                : "Standar Pelayanan Rekam Medis Nasional"}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -518,7 +749,7 @@ function ExaminationForm() {
             </h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {patientHistory.map((h) => (
+              {patientHistory.map((h) => (
               <div
                 key={h.id}
                 onClick={() => {
@@ -552,7 +783,7 @@ function ExaminationForm() {
                   {h.diagnosa}
                 </p>
                 <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
-                  {h.tindakan || h.keluhanUtama || "Pemeriksaan rutin"}
+                  {h.tindakan || h.keluhanUtama || (isDentalClinic ? "Kontrol dental" : "Pemeriksaan rutin")}
                 </p>
               </div>
             ))}
@@ -563,23 +794,24 @@ function ExaminationForm() {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <input type="hidden" {...register("examCategory")} />
 
-        {/* KATEGORI PEMERIKSAAN (STANDARD TABS) */}
-        <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border flex flex-wrap gap-2">
-          {EXAM_CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setValue("examCategory", cat)}
-              className={`flex-1 min-w-[100px] py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-                watchCategory === cat
-                  ? "bg-primary-600 text-white shadow-lg shadow-primary-200"
-                  : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+        {!isDentalClinic && (
+          <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border flex flex-wrap gap-2">
+            {EXAM_CATEGORIES.filter((cat) => cat !== "Odontologi").map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setValue("examCategory", cat)}
+                className={`flex-1 min-w-[100px] py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                  watchCategory === cat
+                    ? "bg-primary-600 text-white shadow-lg shadow-primary-200"
+                    : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* S - SUBJECTIVE */}
         <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
@@ -699,6 +931,75 @@ function ExaminationForm() {
                 )}
               </div>
             </div>
+
+            {isDentalClinic && (
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Jenis Kunjungan
+                    </label>
+                    <select
+                      {...register("dentalVisitType")}
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    >
+                      <option value="Baru">Baru</option>
+                      <option value="Kontrol">Kontrol</option>
+                      <option value="Darurat">Darurat</option>
+                      <option value="Rujukan">Rujukan</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Skala Nyeri
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10"
+                      {...register("dentalPainScale")}
+                      placeholder="0-10"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Riwayat Medis / Alergi yang Relevan
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalMedicalHistory")}
+                      placeholder="Diabetes, hipertensi, antikoagulan, kehamilan, dsb."
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Kebiasaan / Faktor Risiko
+                    </label>
+                    <textarea
+                      {...register("dentalHabits")}
+                      rows={2}
+                      placeholder="Merokok, kopi, bruxism, kebersihan mulut, kebiasaan menggigit benda."
+                      className="w-full px-4 py-3 bg-cyan-50/40 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Riwayat Perawatan Gigi
+                    </label>
+                    <textarea
+                      {...register("dentalTreatmentHistory")}
+                      rows={2}
+                      placeholder="Pencabutan, tambal, scaling, RCT, prostesis sebelumnya."
+                      className="w-full px-4 py-3 bg-cyan-50/40 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* CATEGORY SPECIFIC SUBJECTIVE */}
             {watchCategory === "Bumil" && (
@@ -1062,105 +1363,260 @@ function ExaminationForm() {
         </div>
 
         {/* O - OBJECTIVE */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
+        <div className="relative z-20 bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-visible">
           <div className="bg-green-500 px-6 py-3">
             <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              O - OBJECTIVE (Pemeriksaan Fisik)
+              O - OBJECTIVE ({isDentalClinic ? "Pemeriksaan Extraoral, Intraoral, dan Odontogram" : "Pemeriksaan Fisik"})
             </h3>
           </div>
           <div className="p-6 space-y-6">
-            {/* Vital Signs Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  Tensi (mmHg)
-                </label>
-                <input
-                  type="text"
-                  {...register("tensi")}
-                  placeholder="120/80"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
+            {!isDentalClinic && (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    Tensi (mmHg)
+                  </label>
+                  <input
+                    type="text"
+                    {...register("tensi")}
+                    placeholder="120/80"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    Nadi (/mnt)
+                  </label>
+                  <input
+                    type="number"
+                    {...register("nadi")}
+                    placeholder="80"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    Suhu (°C)
+                  </label>
+                  <input
+                    type="text"
+                    {...register("suhu")}
+                    placeholder="36.5"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    Resp (/mnt)
+                  </label>
+                  <input
+                    type="number"
+                    {...register("respirasi")}
+                    placeholder="20"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    BB (kg)
+                  </label>
+                  <input
+                    type="text"
+                    {...register("bb")}
+                    placeholder="60"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    TB (cm)
+                  </label>
+                  <input
+                    type="text"
+                    {...register("tb")}
+                    placeholder="165"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
+                    SPO2 (%)
+                  </label>
+                  <input
+                    type="number"
+                    {...register("spo2")}
+                    placeholder="98"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  Nadi (/mnt)
-                </label>
-                <input
-                  type="number"
-                  {...register("nadi")}
-                  placeholder="80"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  Suhu (°C)
-                </label>
-                <input
-                  type="text"
-                  {...register("suhu")}
-                  placeholder="36.5"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  Resp (/mnt)
-                </label>
-                <input
-                  type="number"
-                  {...register("respirasi")}
-                  placeholder="20"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  BB (kg)
-                </label>
-                <input
-                  type="text"
-                  {...register("bb")}
-                  placeholder="60"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  TB (cm)
-                </label>
-                <input
-                  type="text"
-                  {...register("tb")}
-                  placeholder="165"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                  SPO2 (%)
-                </label>
-                <input
-                  type="number"
-                  {...register("spo2")}
-                  placeholder="98"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                />
-              </div>
-            </div>
+            )}
 
-            <div>
+            <div className="relative z-30">
               <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                Pemeriksaan Fisik
+                {isDentalClinic ? "Temuan Klinis Ringkas" : "Pemeriksaan Fisik"}
               </label>
               <textarea
                 {...register("pemeriksaanFisik")}
                 className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-green-500 focus:bg-white transition-all outline-none"
                 rows={3}
-                placeholder="Status generalis, kepala, leher, dada, perut, ekstremitas..."
+                placeholder={isDentalClinic ? "Contoh: 36 karies profunda, perkusi (+), gingiva regio 11-13 hiperemis." : "Status generalis, kepala, leher, dada, perut, ekstremitas..."}
               />
             </div>
+
+            {isDentalClinic && (
+              <div className="space-y-6 pt-6 border-t border-green-100 dark:border-green-900/30">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Pemeriksaan Extraoral
+                    </label>
+                    <textarea
+                      {...register("dentalExtraOral")}
+                      rows={2}
+                      placeholder="Asimetri wajah, TMJ, pembesaran KGB, pembengkakan."
+                      className="w-full px-4 py-3 bg-cyan-50/50 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Pemeriksaan Intraoral
+                    </label>
+                    <textarea
+                      {...register("dentalIntraOral")}
+                      rows={2}
+                      placeholder="Mukosa, lidah, palatum, saliva, lesi intraoral."
+                      className="w-full px-4 py-3 bg-cyan-50/50 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Oklusi
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalOcclusion")}
+                      placeholder="Normal bite, crossbite, open bite"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Kebersihan Mulut
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalOralHygiene")}
+                      placeholder="Baik / Sedang / Buruk"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Gingiva / Periodontal
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalGingiva")}
+                      placeholder="Sehat, inflamasi, resesi, pocket"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Indeks Plak
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalPlaqueIndex")}
+                      placeholder="Ringan / Sedang / Berat"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Kalkulus
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalCalculus")}
+                      placeholder="Tidak ada / Supra / Subgingiva"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      BOP / Pocket
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalBleedingOnProbing")}
+                      placeholder="BOP (+), pocket 4 mm"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Palpasi
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalPalpation")}
+                      placeholder="Nyeri tekan (+/-)"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Perkusi
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalPercussion")}
+                      placeholder="Perkusi (+/-)"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Mobilitas Gigi
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalMobility")}
+                      placeholder="Mob 1, Mob 2, goyang fisiologis"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
+                      Pocket Depth
+                    </label>
+                    <input
+                      type="text"
+                      {...register("dentalPocketDepth")}
+                      placeholder="Mesial 3 mm, distal 5 mm"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-[11px] font-black text-cyan-700 dark:text-cyan-300 uppercase tracking-widest">
+                      Odontogram
+                    </label>
+                    <span className="text-[10px] text-gray-400">
+                      Klik posisi gigi, lalu pilih status pada panel edit
+                    </span>
+                  </div>
+                  <OdontogramEditor teeth={odontogram} onChange={setOdontogram} />
+                </div>
+              </div>
+            )}
 
             {/* CATEGORY SPECIFIC OBJECTIVE */}
             {watchCategory === "Bumil" && (
@@ -1333,22 +1789,22 @@ function ExaminationForm() {
         </div>
 
         {/* A - ASSESSMENT */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
+        <div className="relative z-20 bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-visible">
           <div className="bg-yellow-500 px-6 py-3">
             <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              A - ASSESSMENT (Diagnosa)
+              A - ASSESSMENT ({isDentalClinic ? "Diagnosa Odontologi" : "Diagnosa"})
             </h3>
           </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-2">
+          <div className={`p-6 grid grid-cols-1 gap-6 ${isDentalClinic ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+            <div className={isDentalClinic ? "" : "md:col-span-2"}>
               <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                Diagnosa Medis <span className="text-red-500">*</span>
+                {isDentalClinic ? "Diagnosa Gigi" : "Diagnosa Medis"} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 {...register("diagnosa")}
                 className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:bg-white transition-all outline-none font-bold"
-                placeholder="Nama penyakit / diagnosa..."
+                placeholder={isDentalClinic ? "Contoh: pulpitis irreversibel gigi 36" : "Nama penyakit / diagnosa..."}
               />
               {errors.diagnosa && (
                 <p className="mt-1 text-xs text-red-500">
@@ -1356,16 +1812,22 @@ function ExaminationForm() {
                 </p>
               )}
             </div>
-            <div>
+            <div className="relative z-30">
               <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
                 Kode ICD-10
               </label>
-              <input
-                type="text"
-                {...register("icd10")}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:bg-white transition-all outline-none font-mono uppercase"
-                placeholder="Contoh: A00.0"
+              <Icd10Autocomplete
+                items={icd10Items}
+                value={watchIcd10 || ""}
+                onChange={(value) =>
+                  setValue("icd10", value, { shouldDirty: true, shouldValidate: true })
+                }
+                onSelect={handleSelectIcd10}
+                placeholder={icd10Placeholder}
               />
+              <p className="mt-2 text-[10px] text-gray-500">
+                Pencarian digabung dari WHO ICD-10 2019 dan ICD-10-CM 2026.
+              </p>
             </div>
           </div>
         </div>
@@ -1374,31 +1836,31 @@ function ExaminationForm() {
         <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
           <div className="bg-blue-500 px-6 py-3">
             <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              P - PLAN (Terapi & Rencana Tindak Lanjut)
+              P - PLAN ({isDentalClinic ? "Tatalaksana, Resep, dan Kontrol" : "Terapi & Rencana Tindak Lanjut"})
             </h3>
           </div>
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  Tindakan Medis
+                  {isDentalClinic ? "Tindakan Dental" : "Tindakan Medis"}
                 </label>
                 <textarea
                   {...register("tindakan")}
                   rows={2}
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Heacting, Injeksi, dll..."
+                  placeholder={isDentalClinic ? "Scaling, tambal, ekstraksi, dressing, aplikasi fluoride." : "Heacting, Injeksi, dll..."}
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  Edukasi / Saran
+                  {isDentalClinic ? "Instruksi Pasca Tindakan / Edukasi" : "Edukasi / Saran"}
                 </label>
                 <textarea
                   {...register("edukasi")}
                   rows={2}
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Istirahat, kurangi gula, dll..."
+                  placeholder={isDentalClinic ? "Instruksi sikat gigi, obat, diet lunak, kontrol ulang." : "Istirahat, kurangi gula, dll..."}
                 />
               </div>
             </div>
@@ -1407,7 +1869,7 @@ function ExaminationForm() {
             <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-2xl border border-purple-100 dark:border-purple-800">
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-xs font-black text-purple-700 dark:text-purple-400 uppercase tracking-widest">
-                  Resep Obat
+                  {isDentalClinic ? "Resep Obat / Bahan" : "Resep Obat"}
                 </h4>
                 <button
                   type="button"
@@ -1427,40 +1889,56 @@ function ExaminationForm() {
                   {selectedMedicines.map((item) => (
                     <div
                       key={item.medicineId}
-                      className="flex items-center gap-3 bg-white dark:bg-gray-800 p-3 rounded-xl border border-purple-200 dark:border-gray-700"
+                      className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-purple-200 dark:border-gray-700 space-y-3"
                     >
-                      <div className="flex-1">
-                        <p className="text-xs font-black text-gray-900 dark:text-white uppercase">
-                          {item.medicineName}
-                        </p>
-                        <p className="text-[10px] text-gray-500 font-bold">
-                          {item.quantity} {item.unit}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedMedicines((prev) =>
-                            prev.filter(
-                              (p) => p.medicineId !== item.medicineId,
-                            ),
-                          )
-                        }
-                        className="text-red-400 hover:text-red-600 transition-colors"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-5 w-5"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <p className="text-xs font-black text-gray-900 dark:text-white uppercase">
+                            {item.medicineName}
+                          </p>
+                          <p className="text-[10px] text-gray-500 font-bold">
+                            {item.quantity} {item.unit}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedMedicines((prev) =>
+                              prev.filter(
+                                (p) => p.medicineId !== item.medicineId,
+                              ),
+                            )
+                          }
+                          className="text-red-400 hover:text-red-600 transition-colors"
                         >
-                          <path
-                            fillRule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </button>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-5 w-5"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest mb-2">
+                          Aturan Minum <span className="text-gray-400 normal-case">(opsional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={item.aturanMinum || ""}
+                          onChange={(e) =>
+                            handleMedicineRuleChange(item.medicineId, e.target.value)
+                          }
+                          placeholder="Contoh: 3x1 sesudah makan"
+                          className="w-full px-3 py-2 bg-purple-50/70 dark:bg-gray-900 border border-purple-200 dark:border-gray-600 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm text-gray-900 dark:text-white"
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1470,13 +1948,13 @@ function ExaminationForm() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
               <div>
                 <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  Rencana Tindak Lanjut
+                  {isDentalClinic ? "Rencana Kontrol / Rujukan" : "Rencana Tindak Lanjut"}
                 </label>
                 <input
                   type="text"
                   {...register("rencanaTindakLanjut")}
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Kontrol 3 hari lagi, Rujuk RS, dll..."
+                  placeholder={isDentalClinic ? "Kontrol 7 hari, evaluasi endo, rujuk SpKG, dll." : "Kontrol 3 hari lagi, Rujuk RS, dll..."}
                 />
               </div>
               <div>
@@ -1512,7 +1990,7 @@ function ExaminationForm() {
             disabled={isSubmitting || isLoading}
             className="px-10 py-4 bg-primary-600 text-white font-black rounded-2xl shadow-xl shadow-primary-500/30 hover:bg-primary-700 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-[0.2em] disabled:opacity-50"
           >
-            {isSubmitting || isLoading ? "Mengirim..." : "Simpan SOAP"}
+            {isSubmitting || isLoading ? "Mengirim..." : isDentalClinic ? "Simpan Pelayanan Gigi" : "Simpan SOAP"}
           </button>
         </div>
       </form>

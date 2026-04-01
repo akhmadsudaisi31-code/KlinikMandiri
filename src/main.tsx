@@ -19,6 +19,7 @@ import ExaminationForm from './pages/ExaminationForm'
 import Reports from './pages/Reports'
 import ActivationPending from './pages/ActivationPending'
 import AdminDashboard from './pages/AdminDashboard'
+import DemoCatalog from './pages/DemoCatalog'
 import ProtectedRoute from './components/ProtectedRoute'
 import NotFound from './pages/NotFound'
 // IMPORT PENTING: Memanggil ThemeProvider
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/lupa-password" element={<ForgotPassword />} />
+            <Route path="/demo" element={<DemoCatalog />} />
 
             <Route 
                 path="/activation-pending" 

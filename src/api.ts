@@ -1,8 +1,11 @@
 const isProd = !window.location.hostname.includes('localhost');
-const PROD_API_URL = 'https://klinikmandiri.praktek-mandiri.workers.dev/api';
-// Jika di production, JANGAN gunakan env var, paksa pakai PROD_API_URL 
+const PROD_API_URL = 'https://my-cloudflare-backend.praktek-mandiri.workers.dev/api';
+const DEV_API_URL = import.meta.env.VITE_API_URL || PROD_API_URL;
+// Jika di production, JANGAN gunakan env var, paksa pakai PROD_API_URL
 // untuk mencegah salah set env var di dashboard.
-const API_BASE_URL = isProd ? PROD_API_URL : (import.meta.env.VITE_API_URL || 'http://localhost:8787/api');
+// Di localhost, fallback ke API production agar frontend tetap bisa dipakai
+// tanpa harus selalu menjalankan worker lokal di port 8787.
+const API_BASE_URL = isProd ? PROD_API_URL : DEV_API_URL;
 
 console.log('🚀 SATSET RM STARTING...', {
   isProd,

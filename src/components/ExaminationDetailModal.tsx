@@ -21,6 +21,10 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
             ext = typeof data.extendedData_json === 'string' ? JSON.parse(data.extendedData_json) : data.extendedData_json;
         } catch (e) {}
     }
+    const isDentalExam = ext.category === 'Odontologi';
+    const odontogramIssues = Array.isArray(ext.odontogram)
+        ? ext.odontogram.filter((item: any) => item && item.status && item.status !== 'Normal')
+        : [];
 
     return (
         <Transition appear show={isOpen} as={Fragment}>
@@ -38,7 +42,7 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                 <div className="px-8 pt-8 pb-6 flex justify-between items-start border-b border-gray-50 dark:border-gray-800">
                                     <div>
                                         <Dialog.Title as="h3" className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight">
-                                            Rincian {isSOAP ? 'Pemeriksaan SOAP' : 'Kunjungan'}
+                                            Rincian {isSOAP ? (isDentalExam ? 'Pelayanan Gigi' : 'Pemeriksaan SOAP') : 'Kunjungan'}
                                         </Dialog.Title>
                                         <p className="text-xs font-bold text-gray-400 dark:text-gray-500 mt-1 uppercase tracking-widest">
                                             {format(date, 'EEEE, dd MMMM yyyy - HH:mm', { locale: localeId })}
@@ -120,7 +124,7 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                 )}
                                             </div>
                                             
-                                            {ext.isPersalinan && (
+                                                {ext.isPersalinan && (
                                                 <div className="mt-4 pt-4 border-t border-primary-200 dark:border-primary-800">
                                                     <p className="text-[10px] font-black text-primary-600 dark:text-primary-400 uppercase tracking-widest mb-3">Persalinan</p>
                                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -142,8 +146,29 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                         </div>
                                                     </div>
                                                 </div>
-                                            )}
-                                        </div>
+                                                )}
+
+                                                {isDentalExam && (
+                                                    <>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Jenis Kunjungan</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.dentalVisitType || '-'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Skala Nyeri</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.dentalPainScale || '-'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Kebersihan Mulut</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.dentalOralHygiene || '-'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Gingiva</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.dentalGingiva || '-'}</span>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
                                     )}
 
                                     {isSOAP ? (
@@ -163,6 +188,18 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                         <div>
                                                             <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Riwayat Penyakit Sekarang</p>
                                                             <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">{data.riwayatPenyakitSekarang}</p>
+                                                        </div>
+                                                    )}
+                                                    {isDentalExam && (
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <div>
+                                                                <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Riwayat Medis Dental</p>
+                                                                <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">{ext.dentalMedicalHistory || '-'}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Riwayat Perawatan Gigi</p>
+                                                                <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">{ext.dentalTreatmentHistory || '-'}</p>
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -195,9 +232,55 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                     </div>
                                                     {data.pemeriksaanFisik && (
                                                         <div>
-                                                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Pemeriksaan Fisik</p>
+                                                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">{isDentalExam ? 'Temuan Klinis Ringkas' : 'Pemeriksaan Fisik'}</p>
                                                             <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl">{data.pemeriksaanFisik}</p>
                                                         </div>
+                                                    )}
+                                                    {isDentalExam && (
+                                                        <>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                <div>
+                                                                    <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Extraoral</p>
+                                                                    <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap leading-relaxed bg-cyan-50/50 dark:bg-cyan-900/10 p-4 rounded-xl">{ext.dentalExtraOral || '-'}</p>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Intraoral</p>
+                                                                    <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap leading-relaxed bg-cyan-50/50 dark:bg-cyan-900/10 p-4 rounded-xl">{ext.dentalIntraOral || '-'}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                                {[
+                                                                    ['Oklusi', ext.dentalOcclusion],
+                                                                    ['Plak', ext.dentalPlaqueIndex],
+                                                                    ['Kalkulus', ext.dentalCalculus],
+                                                                    ['Perkusi', ext.dentalPercussion],
+                                                                    ['Palpasi', ext.dentalPalpation],
+                                                                    ['Mobilitas', ext.dentalMobility],
+                                                                    ['Pocket', ext.dentalPocketDepth],
+                                                                    ['BOP', ext.dentalBleedingOnProbing],
+                                                                ].map(([label, value]) => value ? (
+                                                                    <div key={label} className="p-3 bg-cyan-50/50 dark:bg-cyan-900/10 rounded-xl border border-cyan-100 dark:border-cyan-900/30">
+                                                                        <p className="text-[9px] font-black text-cyan-600 dark:text-cyan-400 uppercase mb-1">{label}</p>
+                                                                        <p className="font-black text-gray-900 dark:text-white text-sm">{value}</p>
+                                                                    </div>
+                                                                ) : null)}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Ringkasan Odontogram</p>
+                                                                {odontogramIssues.length > 0 ? (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                                        {odontogramIssues.map((item: any) => (
+                                                                            <div key={item.toothNumber} className="flex items-center justify-between p-3 rounded-xl border border-cyan-100 dark:border-cyan-900/30 bg-cyan-50/50 dark:bg-cyan-900/10">
+                                                                                <span className="font-black text-cyan-700 dark:text-cyan-300">Gigi {item.toothNumber}</span>
+                                                                                <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{item.status}{item.note ? ` - ${item.note}` : ''}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-sm text-gray-500 dark:text-gray-400">Tidak ada temuan khusus pada odontogram.</p>
+                                                                )}
+                                                            </div>
+                                                        </>
                                                     )}
                                                 </div>
                                             </section>
@@ -211,7 +294,7 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                 <div className="px-3">
                                                     <div className="p-4 bg-yellow-50 dark:bg-yellow-900/10 rounded-2xl border border-yellow-100 dark:border-yellow-900/30">
                                                         <div className="flex justify-between items-center mb-1">
-                                                            <p className="text-[11px] font-bold text-yellow-600 dark:text-yellow-400 uppercase">Diagnosa Medis</p>
+                                                            <p className="text-[11px] font-bold text-yellow-600 dark:text-yellow-400 uppercase">{isDentalExam ? 'Diagnosa Gigi' : 'Diagnosa Medis'}</p>
                                                             {data.icd10 && <span className="px-2 py-0.5 bg-yellow-200 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100 text-[10px] font-black rounded uppercase font-mono">{data.icd10}</span>}
                                                         </div>
                                                         <p className="text-lg font-black text-gray-900 dark:text-white uppercase tracking-tight">{data.diagnosa || '-'}</p>
@@ -246,9 +329,17 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                             <p className="text-[11px] font-bold text-purple-600 dark:text-purple-400 uppercase mb-3">Resep Obat</p>
                                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                                 {data.medicines.map((med: any, i: number) => (
-                                                                    <div key={i} className="flex justify-between items-center p-2.5 bg-white dark:bg-gray-800 rounded-xl border border-purple-100 dark:border-gray-700 shadow-sm">
-                                                                        <span className="text-xs font-black text-gray-900 dark:text-white uppercase">{med.medicineName}</span>
-                                                                        <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 px-2 py-0.5 bg-purple-50 dark:bg-purple-900/30 rounded-lg">{med.quantity} {med.unit}</span>
+                                                                    <div key={i} className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-purple-100 dark:border-gray-700 shadow-sm space-y-2">
+                                                                        <div className="flex justify-between items-center gap-3">
+                                                                            <span className="text-xs font-black text-gray-900 dark:text-white uppercase">{med.medicineName}</span>
+                                                                            <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 px-2 py-0.5 bg-purple-50 dark:bg-purple-900/30 rounded-lg whitespace-nowrap">{med.quantity} {med.unit}</span>
+                                                                        </div>
+                                                                        {med.aturanMinum && (
+                                                                            <div>
+                                                                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Aturan Minum</p>
+                                                                                <p className="text-sm text-gray-700 dark:text-gray-300">{med.aturanMinum}</p>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -266,7 +357,7 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                         </div>
                                     ) : (
                                         <div className="p-6 bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30">
-                                            <p className="text-[11px] font-bold text-blue-500 uppercase mb-2">Terapi / Tindakan Kunjungan Umum</p>
+                                            <p className="text-[11px] font-bold text-blue-500 uppercase mb-2">Terapi / Tindakan Kunjungan Pendaftaran</p>
                                             <p className="text-gray-800 dark:text-gray-200 leading-relaxed font-medium">{data.therapy || data.notes || '-'}</p>
                                         </div>
                                     )}

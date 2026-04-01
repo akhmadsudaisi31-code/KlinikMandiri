@@ -15,8 +15,22 @@ interface ClinicEntry {
     status: 'pending' | 'active' | 'inactive' | 'rejected';
     subscriptionPlan: string;
     clinicType?: string;
+    validUntil?: string;
     createdAt: string;
     lastLoginAt?: string;
+}
+
+function formatValidUntil(validUntil?: string) {
+  if (!validUntil) return 'Belum diatur';
+
+  const validUntilDate = new Date(validUntil);
+  if (Number.isNaN(validUntilDate.getTime())) return 'Belum diatur';
+
+  if (validUntilDate.getFullYear() >= 2100) {
+    return 'Aktif sangat panjang';
+  }
+
+  return format(validUntilDate, 'dd MMM yyyy', { locale: localeId });
 }
 
 function AdminDashboard() {
@@ -189,10 +203,10 @@ function AdminDashboard() {
               </svg>
           </button>
 
-          {/* Preview Account Icon */}
+          {/* Masuk ke akun klinik */}
           <button
               onClick={() => handleImpersonate(clinic.id, clinic.name)}
-              title="Preview Akun (Masuk ke Klinik)"
+              title="Masuk ke akun klinik"
               className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/40 rounded-lg transition-colors"
           >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
@@ -261,7 +275,7 @@ function AdminDashboard() {
                       onClick={() => handleActivate(clinic.id)}
                       className="bg-primary-600 hover:bg-primary-700 text-white text-[10px] font-black px-4 py-2 rounded-xl transition-all shadow-lg shadow-primary-500/10 uppercase tracking-widest whitespace-nowrap"
                   >
-                      Activate
+                      Aktifkan
                   </button>
               </>
           )}
@@ -289,13 +303,13 @@ function AdminDashboard() {
   return (
     <div className="space-y-6 pb-20 max-w-6xl mx-auto">
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-8 rounded-3xl text-white shadow-2xl">
-        <h1 className="text-3xl font-black uppercase tracking-tighter">System Admin <span className="text-primary-400">Panel</span></h1>
-        <p className="text-gray-400 text-sm font-bold mt-1 uppercase tracking-widest">Konfirmasi & Aktivasi Klinik Baru</p>
+        <h1 className="text-3xl font-black uppercase tracking-tighter">Panel <span className="text-primary-400">Administrator</span></h1>
+        <p className="text-gray-400 text-sm font-bold mt-1 uppercase tracking-widest">Kelola aktivasi, masa aktif, dan akses klinik</p>
       </div>
 
       <div className="bg-white dark:bg-dark-surface p-6 rounded-3xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border">
         {loading ? (
-             <div className="text-center py-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Loading Data Klinik...</div>
+             <div className="text-center py-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Memuat data klinik...</div>
         ) : (
           <>
           {/* Desktop Table View */}
@@ -307,6 +321,7 @@ function AdminDashboard() {
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Kontak</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Jenis Klinik</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Paket</th>
+                  <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Aktif Sampai</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
                   <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-widest">Aksi</th>
                 </tr>
@@ -336,6 +351,11 @@ function AdminDashboard() {
                         </span>
                     </td>
                     <td className="px-6 py-4">
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                            {formatValidUntil(clinic.validUntil)}
+                        </span>
+                    </td>
+                    <td className="px-6 py-4">
                         <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
                             clinic.status === 'active' 
                             ? 'bg-green-100 text-green-600' 
@@ -353,7 +373,7 @@ function AdminDashboard() {
                 ))}
                 {clinics.length === 0 && (
                      <tr>
-                         <td colSpan={6} className="text-center py-20 text-gray-300 font-black uppercase tracking-widest">Tidak Ada Klinik Terdaftar</td>
+                         <td colSpan={7} className="text-center py-20 text-gray-300 font-black uppercase tracking-widest">Tidak Ada Klinik Terdaftar</td>
                      </tr>
                 )}
               </tbody>
@@ -396,8 +416,11 @@ function AdminDashboard() {
                         <span className="text-[10px] font-black bg-primary-50 dark:bg-primary-900/20 text-primary-600 px-3 py-1 rounded-full uppercase tracking-widest border border-primary-100 dark:border-primary-900/50">
                             Paket: {SUBSCRIPTION_PLANS.find(p => p.id === clinic.subscriptionPlan)?.name || clinic.subscriptionPlan}
                         </span>
+                        <span className="text-[10px] font-black bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100 dark:border-emerald-900/50">
+                            Aktif sampai: {formatValidUntil(clinic.validUntil)}
+                        </span>
                         <span className="text-[10px] font-black bg-gray-50 dark:bg-gray-800 text-gray-500 px-3 py-1 rounded-full uppercase tracking-widest">
-                            Join: {format(new Date(clinic.createdAt), 'dd MMM yyyy', { locale: localeId })}
+                            Terdaftar: {format(new Date(clinic.createdAt), 'dd MMM yyyy', { locale: localeId })}
                         </span>
                     </div>
 
@@ -561,7 +584,7 @@ function AdminDashboard() {
         </div>
       )}
 
-      {/* Danger Zone: Reset Database */}
+      {/* Area sensitif */}
       <div className="mt-12 bg-red-50 dark:bg-red-900/10 border-2 border-red-200 dark:border-red-900/30 rounded-3xl p-8 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
             <div>
@@ -569,7 +592,7 @@ function AdminDashboard() {
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
-                    DANGER ZONE
+                    Area Sensitif
                 </h3>
                 <p className="text-sm text-red-800 dark:text-red-300 mt-2 max-w-2xl font-medium">Aksi ini akan MENGHAPUS SEMUA DATA transaksi (pasien, obat, rekam medis) dan semua akun klinik kecuali akun Administrator. Gunakan hanya jika Anda ingin mengosongkan aplikasi secara total untuk reset produksi.</p>
             </div>
@@ -577,12 +600,12 @@ function AdminDashboard() {
                 onClick={() => setIsResetModalOpen(true)}
                 className="shrink-0 bg-red-600 hover:bg-red-700 text-white font-black px-6 py-3 rounded-2xl shadow-lg shadow-red-500/30 transition-all transform hover:scale-105"
             >
-                Reset Database
+                Kosongkan Database
             </button>
         </div>
       </div>
 
-      {/* Reset Database Modal */}
+      {/* Modal reset database */}
       {isResetModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-red-900/40 backdrop-blur-md transition-all duration-300">
           <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all border-2 border-red-100 dark:border-red-900">

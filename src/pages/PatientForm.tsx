@@ -7,6 +7,8 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { PatientFormData, GENDERS, CATEGORIES, POLI_OPTIONS } from '../types';
 import toast from 'react-hot-toast';
+import { getExaminationUnitLabel, getExaminationQueueLabel, isDentalClinicType } from '../utils/clinic';
+import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 
 const schema = z.object({
   manualRm: z.string().optional(),
@@ -37,6 +39,9 @@ function PatientForm() {
   const [rmMode, setRmMode] = useState<'auto' | 'manual' | 'none'>(isEditMode ? 'manual' : 'auto');
   const [nextRmPreview, setNextRmPreview] = useState<string>('');
   const { user } = useAuth();
+  const isDentalClinic = isDentalClinicType(user?.clinicType);
+  const examinationUnitLabel = getExaminationUnitLabel(user?.clinicType);
+  const examinationQueueLabel = getExaminationQueueLabel(user?.clinicType);
 
   const previewNextRmNumber = async () => {
       try {
@@ -65,7 +70,7 @@ function PatientForm() {
       ageYears: '',
       ageMonths: '',
       manualRm: '',
-      poli: 'Umum' as const,
+      poli: 'Pendaftaran' as const,
     }
   });
 
@@ -94,6 +99,12 @@ function PatientForm() {
   }, [isEditMode, rmMode]);
 
   useEffect(() => {
+    if (!isEditMode && isDentalClinic) {
+      setValue('poli', 'Pemeriksaan');
+    }
+  }, [isDentalClinic, isEditMode, setValue]);
+
+  useEffect(() => {
     if (isEditMode && patientId) {
       setIsFetchingData(true);
       setRmMode('manual'); // Default to manual/display for edit mode
@@ -111,7 +122,7 @@ function PatientForm() {
             setValue('dob', data.dob || '');
             setValue('ageYears', data.ageYears ? String(data.ageYears) : '');
             setValue('ageMonths', data.ageMonths ? String(data.ageMonths) : '');
-            setValue('poli', data.poli || 'Umum');
+            setValue('poli', data.poli || 'Pendaftaran');
           } else {
             toast.error('Data pasien tidak ditemukan.');
             navigate('/');
@@ -198,12 +209,13 @@ function PatientForm() {
 
         // KIRIM NOTIFIKASI JIKA UPDATE KE POLI PEMERIKSAAN
         if (data.poli === 'Pemeriksaan') {
+            broadcastPatientQueueUpdate({ patientId, source: 'patient-form-edit' });
             try {
                 await api.post('/notifications', {
                     type: 'NEW_PATIENT',
                     patientId: patientId,
                     patientName: data.name,
-                    message: `Update Pasien: ${data.name} masuk antrian pemeriksaan.`,
+                    message: `Update Pasien: ${data.name} masuk antrian ${examinationQueueLabel}.`,
                     read: false,
                     createdAt: new Date().toISOString(),
                     toRole: 'pemeriksa',
@@ -224,12 +236,13 @@ function PatientForm() {
         
         // KIRIM NOTIFIKASI JIKA MASUK POLI PEMERIKSAAN
         if (data.poli === 'Pemeriksaan') {
+            broadcastPatientQueueUpdate({ patientId: docRef?.id, source: 'patient-form-create' });
             try {
                 await api.post('/notifications', {
                     type: 'NEW_PATIENT',
                     patientId: docRef?.id || Date.now().toString(),
                     patientName: data.name,
-                    message: `Pasien Baru: ${data.name} masuk antrian pemeriksaan.`,
+                    message: `Pasien Baru: ${data.name} masuk antrian ${examinationQueueLabel}.`,
                     read: false,
                     createdAt: new Date().toISOString(),
                     toRole: 'pemeriksa',
@@ -249,7 +262,7 @@ function PatientForm() {
       if (data.poli === 'Pemeriksaan' && targetId) {
           navigate(`/pemeriksaan/${targetId}`);
       } else {
-          navigate('/pasien');
+          navigate('/pendaftaran');
       }
 
     } catch (error) {
@@ -266,9 +279,13 @@ function PatientForm() {
     <div className="max-w-3xl mx-auto pb-20">
       <div className="bg-gradient-to-r from-primary-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-t-2xl border border-primary-100 dark:border-dark-border border-b-0">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          {isEditMode ? 'Edit Data Pasien' : 'Registrasi Pasien Baru'}
+          {isEditMode ? 'Edit Data Pasien' : isDentalClinic ? 'Pendaftaran Pasien Poli Gigi' : 'Registrasi Pasien Baru'}
         </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Lengkapi formulir di bawah ini dengan benar.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          {isDentalClinic
+            ? 'Form ini disesuaikan untuk pendaftaran pelayanan kedokteran gigi.'
+            : 'Lengkapi formulir di bawah ini dengan benar.'}
+        </p>
       </div>
 
       <div className="bg-white dark:bg-dark-surface p-6 md:p-8 rounded-b-2xl shadow-soft dark:shadow-none border border-primary-100 dark:border-dark-border border-t-0 transition-colors">
@@ -358,11 +375,13 @@ function PatientForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Suami / Penanggung Jawab</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                {isDentalClinic ? 'Orang Tua / Penanggung Jawab' : 'Nama Suami / Penanggung Jawab'}
+              </label>
               <input
                 {...register('namaSuami')}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
-                placeholder="Khusus Bumil/Anak (Opsional)"
+                placeholder={isDentalClinic ? 'Opsional untuk pasien anak atau pendamping' : 'Khusus Bumil/Anak (Opsional)'}
               />
             </div>
           </div>
@@ -431,7 +450,11 @@ function PatientForm() {
                 control={control}
                 render={({ field }) => (
                   <select {...field} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
-                    {POLI_OPTIONS.map(poli => <option key={poli} value={poli}>{poli}</option>)}
+                    {POLI_OPTIONS.map(poli => (
+                      <option key={poli} value={poli}>
+                        {poli === 'Pemeriksaan' ? examinationUnitLabel : poli}
+                      </option>
+                    ))}
                   </select>
                 )}
               />
@@ -440,8 +463,23 @@ function PatientForm() {
               </div>
             </div>
             {errors.poli && <p className="mt-1 text-sm text-red-600">{errors.poli.message}</p>}
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-1">Pilih "Pemeriksaan" jika pasien akan langsung diperiksa</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-1">
+              {isDentalClinic
+                ? `Pilih "${examinationUnitLabel}" jika pasien akan langsung masuk pelayanan dokter gigi.`
+                : 'Pilih "Pemeriksaan" jika pasien akan langsung diperiksa'}
+            </p>
           </div>
+
+          {isDentalClinic && (
+            <div className="bg-cyan-50/80 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl p-5">
+              <p className="text-sm font-bold text-cyan-800 dark:text-cyan-200 mb-2">
+                Alur pendaftaran poli gigi
+              </p>
+              <p className="text-sm text-cyan-700 dark:text-cyan-300">
+                Pasien yang diarahkan ke {examinationUnitLabel} akan otomatis masuk ke form pelayanan gigi yang memuat anamnesis dental, pemeriksaan intraoral, dan odontogram.
+              </p>
+            </div>
+          )}
 
           {/* Umur & Tgl Lahir */}
           <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-xl border border-gray-200 dark:border-gray-700">
