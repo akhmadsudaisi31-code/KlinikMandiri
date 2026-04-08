@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['192.png', '512.png'],
+      includeAssets: ['192.png', '512.png', '192-maskable.png', '512-maskable.png'],
       manifest: {
         name: 'KlinikMandiri',
         short_name: 'KlinikMandiri',
@@ -29,6 +29,18 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any'
+          },
+          {
+            src: '/192-maskable.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable'
+          },
+          {
+            src: '/512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },

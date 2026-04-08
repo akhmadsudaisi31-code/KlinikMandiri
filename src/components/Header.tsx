@@ -10,6 +10,7 @@ import { isDentalClinicType } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
+import { subscribeDataSync } from '../utils/dataSync';
 
 function formatValidUntil(validUntil?: string) {
   if (!validUntil) return 'Belum diatur';
@@ -35,144 +36,147 @@ function Header() {
   const processedNotifs = React.useRef<Set<string>>(new Set());
 
   // Listener Notifikasi Realtime (Polling Fallback)
+  const fetchNotifications = React.useCallback(async (isMounted = true) => {
+    try {
+      const currentRole =
+        location.pathname.startsWith('/pemeriksaan')
+          ? 'pemeriksa'
+          : location.pathname.startsWith('/pendaftaran') || location.pathname.startsWith('/pasien')
+            ? 'pendaftar'
+            : null;
+
+      const endpoint = currentRole
+        ? `/notifications?toRole=${encodeURIComponent(currentRole)}`
+        : '/notifications';
+      const notifs = await api.get(endpoint);
+
+      if (!isMounted) return;
+
+      // Jika tidak ada notifikasi yang belum dibaca, pastikan bunyinya berhenti
+      if (notifs.length === 0) {
+          stopNotificationLoop();
+      }
+
+      notifs.forEach((notif: Notification) => {
+        if (processedNotifs.current.has(notif.id)) return;
+        processedNotifs.current.add(notif.id);
+
+        if (notif.type === 'CALL_PATIENT') {
+            startNotificationLoop('calling');
+        } else if (notif.type === 'NEW_PATIENT') {
+            broadcastPatientQueueUpdate({ action: 'refresh', patientId: notif.patientId, source: 'notification' });
+            startNotificationLoop('incoming');
+        }
+
+        if (notif.type === 'CALL_PATIENT') {
+           toast(
+             (t) => (
+               <div key={notif.id} className="flex flex-col items-center w-[calc(100vw-32px)] sm:w-96 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 animate-bounce-in">
+                  <div className="relative mb-4">
+                      <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20 duration-1000"></div>
+                      <div className="relative bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-full text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-50 dark:ring-blue-900/20">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                        </svg>
+                      </div>
+                  </div>
+                  <div className="text-center mb-6 w-full">
+                    <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">Panggilan Pasien</h3>
+                    <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed px-1 font-medium">{notif.message}</p>
+                  </div>
+                  <button 
+                      onClick={async () => {
+                          stopNotificationLoop();
+                          try {
+                              await api.put(`/notifications/${notif.id}/read`, {});
+                          } catch (e) {
+                              console.error("Gagal update read status:", e);
+                          }
+                          toast.dismiss(t.id);
+                      }}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-blue-200 dark:shadow-none"
+                  >
+                      OK, SAYA MENGERTI
+                  </button>
+               </div>
+             ),
+             { duration: Infinity, id: notif.id }
+           );
+        } else if (notif.type === 'NEW_PATIENT') {
+           toast(
+             (t) => (
+               <div key={notif.id} className="flex flex-col items-center w-[calc(100vw-32px)] sm:w-96 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 animate-bounce-in">
+                  <div className="relative mb-4">
+                      <div className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-20 duration-1000"></div>
+                      <div className="relative bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-full text-white shadow-lg shadow-green-500/30 ring-4 ring-green-50 dark:ring-green-900/20">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
+                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                      </div>
+                  </div>
+                  <div className="text-center mb-6 w-full">
+                    <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">Pasien Baru</h3>
+                    <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed px-1 font-medium">{notif.message}</p>
+                  </div>
+                  <button 
+                      onClick={async () => {
+                          stopNotificationLoop();
+                          try {
+                              await api.put(`/notifications/${notif.id}/read`, {});
+                          } catch (e) {
+                              console.error("Gagal update read status:", e);
+                          }
+                          toast.dismiss(t.id);
+                      }}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-green-200 dark:shadow-none"
+                  >
+                      TERIMA
+                  </button>
+               </div>
+             ),
+             { duration: Infinity, id: notif.id }
+           );
+        }
+      });
+    } catch (e) {
+      console.error("Gagal ambil notif:", e);
+    }
+  }, [location.pathname]);
+
+  // Sync & Polling Loop
   React.useEffect(() => {
     if (!user) return;
 
+    let isMounted = true;
     processedNotifs.current.clear();
 
-    const currentRole =
-      location.pathname.startsWith('/pemeriksaan')
-        ? 'pemeriksa'
-        : location.pathname.startsWith('/pendaftaran') || location.pathname.startsWith('/pasien')
-          ? 'pendaftar'
-          : null;
+    fetchNotifications(isMounted);
 
-    const fetchNotifications = async () => {
-      try {
-        const endpoint = currentRole
-          ? `/notifications?toRole=${encodeURIComponent(currentRole)}`
-          : '/notifications';
-        const notifs = await api.get(endpoint);
+    const interval = setInterval(() => {
+        if (isMounted) fetchNotifications(isMounted);
+    }, 10000); // 10s for notifications
 
-        notifs.forEach((notif: Notification) => {
-          if (processedNotifs.current.has(notif.id)) return;
-          processedNotifs.current.add(notif.id);
-
-          if (notif.type === 'CALL_PATIENT') {
-              startNotificationLoop('calling');
-          } else if (notif.type === 'NEW_PATIENT') {
-              broadcastPatientQueueUpdate({ patientId: notif.patientId, source: 'notification' });
-              startNotificationLoop('incoming');
-          }
-
-          if (notif.type === 'CALL_PATIENT') {
-             toast(
-               (t) => (
-                 <div className="flex flex-col items-center w-[calc(100vw-32px)] sm:w-96 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 animate-bounce-in">
-                    {/* Icon with Pulse */}
-                    <div className="relative mb-4">
-                        <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20 duration-1000"></div>
-                        <div className="relative bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-full text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-50 dark:ring-blue-900/20">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                          </svg>
-                        </div>
-                    </div>
-                    
-                    {/* Content */}
-                    <div className="text-center mb-6 w-full">
-                      <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">Panggilan Pasien</h3>
-                      <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed px-1 font-medium">{notif.message}</p>
-                    </div>
-
-                    {/* Button */}
-                    <button 
-                        onClick={async () => {
-                            stopNotificationLoop();
-                            try {
-                                await api.put(`/notifications/${notif.id}/read`, {});
-                            } catch (e) {
-                                console.error("Gagal update read status:", e);
-                            }
-                            toast.dismiss(t.id);
-                        }}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-blue-200 dark:shadow-none"
-                    >
-                        OK, SAYA MENGERTI
-                    </button>
-                 </div>
-               ),
-               { 
-                   duration: 10000, 
-                   id: notif.id
-               }
-             );
-          } else if (notif.type === 'NEW_PATIENT') {
-             toast(
-               (t) => (
-                 <div className="flex flex-col items-center w-[calc(100vw-32px)] sm:w-96 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 animate-bounce-in">
-                    {/* Icon with Pulse */}
-                    <div className="relative mb-4">
-                        <div className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-20 duration-1000"></div>
-                        <div className="relative bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-full text-white shadow-lg shadow-green-500/30 ring-4 ring-green-50 dark:ring-green-900/20">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
-                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                          </svg>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="text-center mb-6 w-full">
-                      <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">Pasien Baru</h3>
-                      <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed px-1 font-medium">{notif.message}</p>
-                    </div>
-
-                    {/* Button */}
-                    <button 
-                        onClick={async () => {
-                            stopNotificationLoop();
-                            try {
-                                await api.put(`/notifications/${notif.id}/read`, {});
-                            } catch (e) {
-                                console.error("Gagal update read status:", e);
-                            }
-                            toast.dismiss(t.id);
-                        }}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-green-200 dark:shadow-none"
-                    >
-                        TERIMA
-                    </button>
-                 </div>
-               ),
-               { 
-                   duration: 10000, 
-                   id: notif.id
-                }
-             );
-          }
-        });
-      } catch (e) {
-        console.error("Gagal ambil notif:", e);
-      }
-    };
-
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 5000);
     const handleWakeUp = () => {
-      if (document.visibilityState === 'visible') {
-        fetchNotifications();
+      if (document.visibilityState === 'visible' && isMounted) {
+        fetchNotifications(isMounted);
       }
     };
 
-    window.addEventListener('focus', fetchNotifications);
+    window.addEventListener('focus', () => isMounted && fetchNotifications(isMounted));
     document.addEventListener('visibilitychange', handleWakeUp);
+    
+    const unsubscribe = subscribeDataSync(['notifications'], () => {
+      if (isMounted) fetchNotifications(isMounted);
+    });
 
     return () => {
+      isMounted = false;
       clearInterval(interval);
-      window.removeEventListener('focus', fetchNotifications);
+      window.removeEventListener('focus', () => fetchNotifications(false));
       document.removeEventListener('visibilitychange', handleWakeUp);
+      unsubscribe();
     };
-  }, [user, location.pathname]);
+  }, [user, fetchNotifications]);
 
   const handleLogout = async () => {
     try {
@@ -210,7 +214,7 @@ function Header() {
 
             {/* Desktop Navigation */}
             {user && (user.status === 'active' || user.isAdmin === 1) && (
-              <div className="hidden md:flex gap-2 text-sm font-medium">
+              <div className="hidden lg:flex gap-2 text-sm font-medium">
                 <Link to="/" className={`px-4 py-2 rounded-lg transition-all ${isActive('/')}`}>
                   Dashboard
                 </Link>
@@ -231,6 +235,12 @@ function Header() {
                     </Link>
                     <Link to="/laporan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/laporan')}`}>
                       Laporan
+                    </Link>
+                    <Link to="/sks" className={`px-4 py-2 rounded-lg transition-all ${isActive('/sks')}`}>
+                      Riwayat SKS
+                    </Link>
+                    <Link to="/settings" className={`px-4 py-2 rounded-lg transition-all ${isActive('/settings')}`}>
+                      Pengaturan
                     </Link>
                   </>
                 )}
@@ -263,7 +273,7 @@ function Header() {
               <button
                 type="button"
                 onClick={() => setIsAccountModalOpen(true)}
-                className="hidden md:flex flex-col items-end rounded-xl px-3 py-2 text-right hover:bg-white/60 dark:hover:bg-gray-800/70 transition-colors"
+                className="hidden lg:flex flex-col items-end rounded-xl px-3 py-2 text-right hover:bg-white/60 dark:hover:bg-gray-800/70 transition-colors"
                 title="Lihat detail akun"
               >
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">
@@ -276,7 +286,7 @@ function Header() {
 
               {/* Mobile Menu Button */}
               <button
-                className="md:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                className="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
@@ -288,12 +298,12 @@ function Header() {
                 </svg>
               </button>
 
-              <div className="h-8 w-px bg-gray-200 dark:bg-gray-700 hidden md:block"></div>
+              <div className="h-8 w-px bg-gray-200 dark:bg-gray-700 hidden lg:block"></div>
 
               {/* Logout Button (Desktop) */}
               <button
                 onClick={handleLogout}
-                className="hidden md:block text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20"
+                className="hidden lg:block text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20"
                 title="Keluar Aplikasi"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
@@ -307,7 +317,7 @@ function Header() {
 
       {/* Mobile Menu Dropdown */}
       {user && isMobileMenuOpen && (user.status === 'active' || user.isAdmin === 1) && (
-        <div className="md:hidden fixed inset-x-0 top-20 mx-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-100 dark:border-gray-800 shadow-2xl rounded-2xl animate-fade-in-down z-[60]">
+        <div className="lg:hidden fixed inset-x-0 top-20 mx-4 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-100 dark:border-gray-800 shadow-2xl rounded-2xl animate-fade-in-down z-[60]">
           <div className="px-4 pt-2 pb-4 space-y-1">
             <Link
               to="/"
@@ -354,6 +364,20 @@ function Header() {
                     className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/laporan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                     >
                     Laporan
+                    </Link>
+                    <Link
+                    to="/sks"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/sks' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                    >
+                    Riwayat SKS
+                    </Link>
+                    <Link
+                    to="/settings"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/settings' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                    >
+                    Pengaturan
                     </Link>
                 </>
             )}

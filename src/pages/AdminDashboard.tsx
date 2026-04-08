@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import { SUBSCRIPTION_PLANS } from '../types';
+import { subscribeDataSync } from '../utils/dataSync';
 
 interface ClinicEntry {
     id: string;
@@ -68,6 +69,14 @@ function AdminDashboard() {
   useEffect(() => {
     if (user && user.isAdmin === 1) {
       fetchClinics();
+
+      const unsubscribe = subscribeDataSync(['admin-clinics'], () => {
+        fetchClinics();
+      });
+
+      return () => {
+        unsubscribe();
+      };
     }
   }, [user]);
 

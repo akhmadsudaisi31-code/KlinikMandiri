@@ -5,7 +5,8 @@ function normalizeClinicType(clinicType?: string | null): string {
 }
 
 export function isDentalClinicType(clinicType?: string | null): boolean {
-  return normalizeClinicType(clinicType) === "dokter gigi";
+  const norm = normalizeClinicType(clinicType);
+  return norm === "dokter gigi" || norm === "gigi" || norm === "dental";
 }
 
 export function getClinicThemeClass(clinicType?: ClinicType | string | null): string {

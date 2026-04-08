@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Medicine } from '../types';
@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import toast from 'react-hot-toast';
+import { subscribeDataSync } from '../utils/dataSync';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -17,27 +18,46 @@ function MedicineList() {
     const navigate = useNavigate();
     const { user } = useAuth();
 
+    const fetchMedicines = useCallback(async (showLoading = false) => {
+         if (showLoading) {
+            setLoading(true);
+         }
+
+         try {
+            const data = await api.get('/medicines');
+            setMedicines(data || []);
+         } catch (e) {
+            console.error(e);
+         } finally {
+            if (showLoading) setLoading(false);
+         }
+    }, []);
+
+    // Initial fetch
     useEffect(() => {
-        setLoading(true);
-        if (!user) {
-            setLoading(false);
-            return;
+        if (user) {
+            fetchMedicines(true);
         }
+    }, [user, fetchMedicines]);
 
-        const fetchMedicines = async () => {
-             try {
-                const data = await api.get('/medicines');
-                setMedicines(data || []);
-             } catch (e) {
-                console.error(e);
-                toast.error("Gagal memuat data obat");
-             } finally {
-                setLoading(false);
-             }
+    // Polling & Sync (Increased interval for stability)
+    useEffect(() => {
+        let isMounted = true;
+
+        const pollingInterval = setInterval(() => {
+            if (isMounted) fetchMedicines();
+        }, 10000);
+
+        const unsubscribe = subscribeDataSync(['medicines'], () => {
+            if (isMounted) fetchMedicines();
+        });
+
+        return () => {
+            isMounted = false;
+            clearInterval(pollingInterval);
+            unsubscribe();
         };
-
-        fetchMedicines();
-    }, [user]);
+    }, [fetchMedicines]);
 
     const handleDelete = async (medicineId: string, medicineName: string) => {
         if (window.confirm(`Apakah Anda yakin ingin menghapus obat ${medicineName}?`)) {
@@ -71,7 +91,7 @@ function MedicineList() {
 
 
     return (
-        <div className="space-y-6 pb-20">
+        <div key="medicine-list-container" className="space-y-6 pb-20 font-sans">
             {/* Header Section */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-purple-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-2xl border border-purple-100 dark:border-dark-border transition-colors">
                 <div>
@@ -124,8 +144,8 @@ function MedicineList() {
                                 <tr className="bg-gray-50 dark:bg-gray-800/50">
                                     <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Nama Obat</th>
                                     <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Satuan</th>
-                                    <th scope="col" className="relative px-6 py-4">
-                                        <span className="sr-only">Actions</span>
+                                    <th scope="col" className="px-6 py-4 sticky-action-col text-center">
+                                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aksi</span>
                                     </th>
                                 </tr>
                             </thead>
@@ -172,7 +192,7 @@ function MedicineList() {
                                                     {medicine.unit}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky-action-col">
                                                 <button
                                                     className="p-2 rounded-full text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-gray-800 transition-all mr-2"
                                                     onClick={() => navigate(`/obat/edit/${medicine.id}`)}

@@ -20,6 +20,7 @@ import {
   ArcElement,
 } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
+import { subscribeDataSync, SyncResource } from '../utils/dataSync';
 
 ChartJS.register(
   CategoryScale,
@@ -54,6 +55,26 @@ function Reports() {
   useEffect(() => {
     fetchReport();
   }, [reportType, selectedDate, dataSource, user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const resources: SyncResource[] = (
+      dataSource === 'patients'
+        ? ['patients', 'reports']
+        : dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan'
+          ? ['examinations', 'reports']
+          : ['reports']
+    );
+
+    const unsubscribe = subscribeDataSync(resources, () => {
+      fetchReport();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [dataSource, reportType, selectedDate, user]);
 
   useEffect(() => {
     // Non-bidan accounts are not allowed to open ANC/Persalinan reports
@@ -348,7 +369,7 @@ function Reports() {
 
       <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors">
         {/* Filter Controls */}
-        <div className="flex flex-col md:flex-row gap-5 mb-8 items-start md:items-end border-b border-gray-50 dark:border-gray-700 pb-6">
+        <div className="flex flex-col md:flex-row md:flex-wrap gap-5 mb-8 items-start md:items-end border-b border-gray-50 dark:border-gray-700 pb-6">
           <div className="w-full md:w-auto">
             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Jenis Data</label>
             <div className="relative">
@@ -394,15 +415,15 @@ function Reports() {
             />
           </div>
 
-          <div className="flex-grow w-full md:w-auto md:text-right mt-2 md:mt-0">
-            <div className="bg-gradient-to-br from-primary-500 to-primary-600 p-4 rounded-2xl text-white shadow-lg shadow-primary-200 dark:shadow-none flex md:inline-flex flex-col md:items-end min-w-[150px]">
-              <p className="text-xs font-bold uppercase opacity-80">{dataSource === 'patients' ? 'Total Pendaftaran' : 'Total Pemeriksaan'}</p>
-              <p className="text-3xl font-bold mt-1">{currentData.length}</p>
+          <div className="flex-grow w-full lg:w-auto flex flex-wrap items-center justify-start lg:justify-end gap-3 mt-4 md:mt-0">
+            <div className="bg-gradient-to-br from-primary-500 to-primary-600 p-4 rounded-2xl text-white shadow-lg shadow-primary-200 dark:shadow-none flex flex-col items-end min-w-[140px] flex-grow sm:flex-grow-0">
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-80">{dataSource === 'patients' ? 'Total Pendaftaran' : 'Total Pemeriksaan'}</p>
+              <p className="text-2xl font-bold mt-1">{currentData.length}</p>
             </div>
 
             {(dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') && (
-              <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-2xl text-white shadow-lg shadow-green-200 dark:shadow-none flex md:inline-flex flex-col md:items-end min-w-[150px] ml-4 mt-2 md:mt-0">
-                <p className="text-xs font-bold uppercase opacity-80">Total Pendapatan</p>
+              <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-2xl text-white shadow-lg shadow-green-200 dark:shadow-none flex flex-col items-end min-w-[140px] flex-grow sm:flex-grow-0">
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Total Pendapatan</p>
                 <p className="text-xl font-bold mt-1">{formatRupiah(currentData.reduce((acc: number, curr: any) => acc + (Number(curr.cost) || 0), 0))}</p>
               </div>
             )}
@@ -410,19 +431,19 @@ function Reports() {
             <button
               onClick={handleExportToExcel}
               disabled={currentData.length === 0}
-              className="mt-4 md:mt-0 ml-4 px-6 py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-bold transition-all disabled:opacity-50 flex md:inline-flex items-center justify-center gap-2 shadow-lg shadow-purple-200 dark:shadow-none"
+              className="px-6 py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-purple-200 dark:shadow-none flex-grow sm:flex-grow-0"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
-              Export Excel
+              Export
             </button>
           </div>
         </div>
 
         {/* --- CHARTS SECTION --- */}
         {!loading && chartData && dataSource === 'examinations' && examinations.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
             <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-2xl border border-gray-100 dark:border-gray-700">
               <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4 text-center">Tren Kunjungan</h3>
               <div className="h-64 flex items-center justify-center">
@@ -485,7 +506,7 @@ function Reports() {
                         <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">LILA</th>
                         <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">SKOR</th>
                         <th rowSpan={2} className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800">USG</th>
-                        <th rowSpan={2} className="px-4 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800 sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                        <th rowSpan={2} className="px-4 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 dark:border-gray-800 sticky-action-col">Aksi</th>
                       </tr>
                       <tr>
                         <th className="px-4 py-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-800">K1</th>
@@ -513,7 +534,7 @@ function Reports() {
                       <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">LIKA</th>
                       <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">VIT K</th>
                       <th className="px-4 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">HB 0</th>
-                      <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                      <th className="px-4 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap sticky-action-col">Aksi</th>
                     </tr>
                   ) : (
                     <tr>
@@ -525,13 +546,13 @@ function Reports() {
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Diagnosa</th>
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Terapi</th>
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Biaya</th>
-                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky-action-col">Aksi</th>
                         </>
                       ) : (
                         <>
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Umur</th>
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
-                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-800/50">Aksi</th>
+                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky-action-col">Aksi</th>
                         </>
                       )}
                     </tr>
@@ -567,7 +588,7 @@ function Reports() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-white">
                           {examination.cost ? formatRupiah(Number(examination.cost)) : '-'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 sticky-action-col">
                           <button
                             onClick={() => handleDelete(examination.id)}
                             className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
@@ -606,7 +627,7 @@ function Reports() {
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.lila || '-'}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.skor || '-'}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{examination.usg || '-'}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 sticky right-0 bg-white dark:bg-dark-surface p-2 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)]">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 sticky-action-col">
                           <button
                             onClick={() => handleDelete(examination.id)}
                             className="bg-white border rounded text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -638,7 +659,7 @@ function Reports() {
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.lika || '-'}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.vitK || '-'}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">{examination.hb0 || '-'}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 sticky-action-col">
                           <button
                             onClick={() => handleDelete(examination.id)}
                             className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
@@ -660,7 +681,7 @@ function Reports() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-700 dark:text-primary-400">{patient.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{patient.ageDisplay}</td>
                         <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{patient.address}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 sticky-action-col">
                           <button
                             onClick={() => handleDelete(patient.id)}
                             className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"

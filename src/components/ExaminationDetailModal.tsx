@@ -1,5 +1,6 @@
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 
@@ -10,6 +11,7 @@ interface ExaminationDetailModalProps {
 }
 
 export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDetailModalProps) {
+    const navigate = useNavigate();
     if (!data) return null;
 
     const isSOAP = 'keluhanUtama' in data; 
@@ -365,7 +367,24 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
 
                                 {/* Footer / Total Cost */}
                                 <div className="px-8 pb-8 pt-4 flex justify-between items-center border-t border-gray-50 dark:border-gray-800 bg-gray-50/30 dark:bg-gray-800/20">
-                                    <div className="text-right ml-auto">
+                                    {isSOAP && (
+                                    <button 
+                                        onClick={() => {
+                                            const patientId = data.patientId;
+                                            const examId = data.id;
+                                            const dateStr = format(date, 'yyyy-MM-dd');
+                                            navigate(`/pemeriksaan/${patientId}?examId=${examId}&tanggal=${dateStr}`);
+                                            onClose();
+                                        }}
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 font-bold rounded-xl border border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-all text-sm uppercase tracking-tight"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                        Ubah Riwayat
+                                    </button>
+                                )}
+                                <div className="text-right ml-auto">
                                         <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-0.5">Total Biaya Layanan</span>
                                         <span className="text-2xl font-black text-primary-600 dark:text-primary-400">
                                             IDR {Number(data.biaya || data.cost || 0).toLocaleString('id-ID')}

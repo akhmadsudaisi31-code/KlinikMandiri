@@ -1,420 +1,671 @@
-import { useState, useEffect, useMemo } from 'react';
-import { api } from '../api';
-import { useAuth } from '../context/AuthContext';
-import { Patient } from '../types';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
+import { 
+    Patient, 
+    ClinicSettings
+} from '../types';
+import { api } from '../api';
 import toast from 'react-hot-toast';
-import { getExaminationQueueLabel, getExaminationUnitLabel, isDentalClinicType } from '../utils/clinic';
-import { subscribePatientQueueUpdate } from '../utils/patientQueueSync';
+import { useAuth } from '../context/AuthContext';
+import { subscribePatientQueueUpdate, PatientQueueUpdateDetail } from '../utils/patientQueueSync';
+import { subscribeDataSync } from '../utils/dataSync';
+import { getExaminationUnitLabel, getExaminationQueueLabel } from '../utils/clinic';
+import SickLeaveCertificate from '../components/SickLeaveCertificate';
 
-const ITEMS_PER_PAGE = 10;
-const EXAM_COMPLETION_TOLERANCE_MS = 60 * 1000;
+const OPTIMISTIC_QUEUE_HIDE_MS = 3000;
+
+function parseSelectedDate(rawDate: string | null): Date {
+    if (!rawDate) return new Date();
+    const parsedDate = new Date(`${rawDate}T00:00:00`);
+    return Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+}
 
 function ExaminationList() {
     const [patients, setPatients] = useState<Patient[]>([]);
     const [latestExaminationAt, setLatestExaminationAt] = useState<Record<string, string>>({});
+    const [latestExamIdByPatient, setLatestExamIdByPatient] = useState<Record<string, string>>({});
+    const [optimisticallyHiddenPatientIds, setOptimisticallyHiddenPatientIds] = useState<Record<string, number>>({});
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [filterStatus, setFilterStatus] = useState<'Antrian' | 'Selesai' | 'Semua'>('Antrian');
     const [currentPage, setCurrentPage] = useState(1);
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { user } = useAuth();
-    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-    const isDentalClinic = isDentalClinicType(user?.clinicType);
-    const examinationUnitLabel = getExaminationUnitLabel(user?.clinicType);
-    const examinationQueueLabel = getExaminationQueueLabel(user?.clinicType);
+    
+    // Settings & Printing State
+    const [settings, setSettings] = useState<ClinicSettings | null>(null);
+    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+    const [printData, setPrintData] = useState<{
+        patient: Patient;
+        startDate: string;
+        endDate: string;
+        days: number | string;
+        printSize: 'A5' | 'A4' | 'F4';
+        address: string;
+        occupation: string;
+        diagnosis: string;
+    } | null>(null);
 
-    useEffect(() => {
-        if (!user) {
-            setLoading(false);
-            return;
+    const selectedDateValue = searchParams.get('tanggal') || format(new Date(), 'yyyy-MM-dd');
+    const selectedDate = useMemo(() => parseSelectedDate(selectedDateValue), [selectedDateValue]);
+    
+    const examinationUnitLabel = useMemo(() => getExaminationUnitLabel(user?.clinicType), [user?.clinicType]);
+    const examinationQueueLabel = useMemo(() => getExaminationQueueLabel(user?.clinicType), [user?.clinicType]);
+
+    // Data Fetching Logic (Memoized)
+    const fetchPatients = useCallback(async (showLoading = false) => {
+        if (!user) return;
+        if (showLoading) setLoading(true);
+
+        try {
+            const start = startOfDay(selectedDate).getTime();
+            const end = endOfDay(selectedDate).getTime();
+            const data = await api.get('/patients');
+            const allPatients = Array.isArray(data) ? data : [];
+            const now = Date.now();
+
+            setPatients(allPatients.filter(p => {
+                const hiddenUntil = optimisticallyHiddenPatientIds[p.id];
+                if (hiddenUntil && hiddenUntil > now) return false;
+                if (p.poli !== "Pemeriksaan" && p.poli !== "Selesai") return false;
+                if (!p.updatedAt) return true;
+                const pTime = new Date(p.updatedAt).getTime();
+                return pTime >= start && pTime <= end;
+            }));
+
+            // Auto-cleanup expired optimistic IDs
+            setOptimisticallyHiddenPatientIds(prev => {
+                const filtered = Object.fromEntries(
+                    Object.entries(prev).filter(([, expiresAt]) => expiresAt > now)
+                );
+                return Object.keys(filtered).length === Object.keys(prev).length ? prev : filtered;
+            });
+        } catch (e) {
+            console.error(e);
+            toast.error("Gagal memuat data pasien");
+        } finally {
+            if (showLoading) setLoading(false);
         }
+    }, [user, selectedDate, optimisticallyHiddenPatientIds]);
 
-        let isMounted = true;
-
-        const fetchPatients = async (showLoading = false) => {
-             if (showLoading) {
-                 setLoading(true);
-             }
-
-             try {
-                 const start = startOfDay(selectedDate).getTime();
-                 const end = endOfDay(selectedDate).getTime();
-                 const data = await api.get('/patients');
-                 const allPatients = Array.isArray(data) ? data : [];
-                 const filtered = allPatients.filter(p => {
-                      if (p.poli !== "Pemeriksaan") return false;
-                      if (!p.updatedAt) return true;
-                      const pTime = new Date(p.updatedAt).getTime();
-                      return pTime >= start && pTime <= end;
-                 });
-                 // Sort by updatedAt descending
-                 filtered.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
-                 if (isMounted) {
-                     setPatients(filtered);
-                 }
-             } catch (e) {
-                 console.error(e);
-                 toast.error("Gagal memuat data pasien");
-             } finally {
-                 if (isMounted) {
-                     setLoading(false);
-                 }
-             }
-        };
-
-        fetchPatients(true);
-
-        const unsubscribeQueueSync = subscribePatientQueueUpdate(() => {
-            fetchPatients();
-        });
-
-        return () => {
-            isMounted = false;
-            unsubscribeQueueSync();
-        };
-    }, [user, selectedDate]);
-
-    // Fetch latest examination time for all patients on selected date
-    useEffect(() => {
+    const fetchExaminations = useCallback(async () => {
         if (!user) return;
         const start = startOfDay(selectedDate).toISOString();
         const end = endOfDay(selectedDate).toISOString();
-
-        const fetchStatus = async () => {
-             try {
-                  const exams = await api.get(`/examinations?startDate=${start}&endDate=${end}`);
-                  const latestByPatient: Record<string, string> = {};
-                  (exams || []).forEach((e: any) => {
-                       if (!e.patientId) return;
-                       const examTime = String(e.createdAt || e.date || '');
-                       if (!examTime) return;
-                       if (!latestByPatient[e.patientId] || new Date(examTime).getTime() > new Date(latestByPatient[e.patientId]).getTime()) {
-                           latestByPatient[e.patientId] = examTime;
-                       }
-                  });
-                  setLatestExaminationAt(latestByPatient);
-             } catch (e) {
-                  console.error(e);
-             }
-        };
-
-        fetchStatus();
+        try {
+            const exams = await api.get(`/examinations?startDate=${start}&endDate=${end}`);
+            const latestByPatient: Record<string, string> = {};
+            const latestIdByPatient: Record<string, string> = {};
+            (exams || []).forEach((e: any) => {
+                if (!e.patientId) return;
+                const examTime = String(e.createdAt || e.date || '');
+                if (!examTime) return;
+                if (!latestByPatient[e.patientId] || new Date(examTime).getTime() > new Date(latestByPatient[e.patientId]).getTime()) {
+                    latestByPatient[e.patientId] = examTime;
+                    latestIdByPatient[e.patientId] = e.id;
+                }
+            });
+            setLatestExaminationAt(latestByPatient);
+            setLatestExamIdByPatient(latestIdByPatient);
+        } catch (e) {
+            console.error(e);
+        }
     }, [user, selectedDate]);
+
+    const fetchSettings = useCallback(async () => {
+        if (!user) return;
+        try {
+            const data = await api.get('/settings');
+            setSettings(data);
+        } catch (e) {
+            console.error("Gagal memuat pengaturan:", e);
+        }
+    }, [user]);
+
+    // Initial load and settings fetch
+    useEffect(() => {
+        fetchPatients(true);
+        fetchExaminations();
+        fetchSettings();
+    }, [user, selectedDateValue]); // Only re-fetch on identity or date change
+
+    // Polling Effect (Isolated & Pausable)
+    useEffect(() => {
+        if (!user || isPrintModalOpen) return;
+
+        const interval = setInterval(() => {
+            fetchPatients(false);
+            fetchExaminations();
+        }, 10000);
+
+        return () => clearInterval(interval);
+    }, [user, isPrintModalOpen, fetchPatients, fetchExaminations]);
+
+    // Sync Subscriptions
+    useEffect(() => {
+        if (!user) return;
+
+        const unsubscribeQueueSync = subscribePatientQueueUpdate((detail: PatientQueueUpdateDetail) => {
+            if (detail.action === 'dequeue' && detail.patientId) {
+                setPatients((prev) => prev.map((p) => 
+                    p.id === detail.patientId ? { ...p, poli: 'Selesai' as any } : p
+                ));
+                setOptimisticallyHiddenPatientIds((prev) => ({ ...prev, [detail.patientId!]: Date.now() + 1000 }));
+                return;
+            }
+            if (detail.action === 'enqueue' && detail.patient) {
+                setOptimisticallyHiddenPatientIds((prev) => {
+                    const next = { ...prev };
+                    delete next[detail.patient!.id];
+                    return next;
+                });
+                // Inline upsert logic to avoid closure issues
+                setPatients(prev => {
+                    if (detail.patient!.poli !== 'Pemeriksaan') return prev;
+                    const next = prev.filter(p => p.id !== detail.patient!.id);
+                    next.push(detail.patient!);
+                    next.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+                    return next;
+                });
+                return;
+            }
+            fetchPatients();
+        });
+
+        const unsubscribeDataSync = subscribeDataSync(['patients', 'examinations'], () => {
+            fetchPatients();
+            fetchExaminations();
+        });
+
+        return () => {
+            unsubscribeQueueSync();
+            unsubscribeDataSync();
+        };
+    }, [user, fetchPatients, fetchExaminations]);
+
+    const handleDateChange = (date: string) => {
+        setSearchParams({ tanggal: date });
+        setCurrentPage(1);
+    };
+
+    const handlePrint = () => {
+        window.print();
+    };
+
+    const handleSaveSKS = async (shouldPrint: boolean = false) => {
+        if (!printData || !settings) return;
+        
+        const daysNum = parseInt(String(printData.days));
+        if (isNaN(daysNum) || daysNum <= 0) {
+            toast.error("Durasi hari harus valid dan lebih dari 0");
+            return;
+        }
+
+        try {
+            // 1. Create SKS record in DB
+            await api.post('/sks', {
+                patientId: printData.patient.id,
+                patientName: printData.patient.name,
+                patientRm: printData.patient.rm,
+                diagnosis: '-', // Diagnosis not required per user request
+                occupation: printData.occupation,
+                address: printData.address,
+                startDate: printData.startDate,
+                endDate: printData.endDate,
+                days: daysNum,
+                ticketNumber: `${(settings.lastSickLeaveNumber || 0) + 1} / SKS / ${format(new Date(), 'MM / yyyy')}`
+            });
+
+            if (shouldPrint) {
+                const res = await api.post('/settings/increment-sick-leave', {});
+                if (res?.nextNumber) {
+                    setSettings({ ...settings, lastSickLeaveNumber: res.nextNumber });
+                }
+                setTimeout(handlePrint, 150);
+            } else {
+                toast.success("Berhasil disimpan ke riwayat SKS");
+                setIsPrintModalOpen(false);
+            }
+        } catch (e: any) {
+            console.error("Gagal memproses SKS:", e);
+            toast.error(e.message || "Gagal memproses permintaan");
+        }
+    };
 
     const handleRemoveFromQueue = async (patientId: string, patientName: string) => {
         if (window.confirm(`Hapus ${patientName} dari antrian ${examinationQueueLabel}? (Data pasien tidak akan terhapus)`)) {
+            const hiddenUntil = Date.now() + OPTIMISTIC_QUEUE_HIDE_MS;
+            setOptimisticallyHiddenPatientIds((prev) => ({ ...prev, [patientId]: hiddenUntil }));
+
             try {
-                await api.put(`/patients/${patientId}`, { poli: "Pendaftaran" });
-                setPatients(prev => prev.filter(p => p.id !== patientId));
-            } catch (error) {
-                console.error("Error removing from queue: ", error);
-                toast.error("Gagal menghapus dari antrian.");
+                await api.put(`/patients/${patientId}`, { 
+                    poli: 'Pendaftaran',
+                    updatedAt: new Date().toISOString()
+                });
+                toast.success(`${patientName} dikembalikan ke antrian pendaftaran`);
+            } catch (e) {
+                console.error(e);
+                toast.error("Gagal memproses permintaan");
+                setOptimisticallyHiddenPatientIds(prev => {
+                    const next = { ...prev };
+                    delete next[patientId];
+                    return next;
+                });
             }
         }
     };
 
-    const handleCallPatient = async (patient: Patient) => {
+    const openPrintModal = async (patient: Patient) => {
         try {
-            await api.post('/notifications', {
-                type: 'CALL_PATIENT',
-                patientId: patient.id,
-                patientName: patient.name,
-                message: `Panggilan untuk Pasien: ${patient.name} (${patient.rm}) - MASUK KE ${examinationUnitLabel.toUpperCase()}`,
-                read: false,
-                createdAt: new Date().toISOString(),
-                toRole: 'pendaftar',
-                clinicId: user?.uid
+            const latestSettings = await api.get('/settings');
+            setSettings(latestSettings);
+            
+            const start = format(new Date(), 'yyyy-MM-dd');
+            const end = format(new Date(), 'yyyy-MM-dd');
+            
+            setPrintData({
+                patient,
+                startDate: start,
+                endDate: end,
+                days: 1,
+                printSize: 'A4',
+                address: patient.address || '',
+                occupation: patient.occupation || '-',
+                diagnosis: ''
             });
-            toast.success("Pasien dipanggil.");
-        } catch (error) {
-            console.error("Error calling patient: ", error);
-             toast.error("Gagal memanggil pasien (Masalah Izin/Koneksi).");
+            setIsPrintModalOpen(true);
+        } catch (e) {
+            console.error("Gagal memuat pengaturan:", e);
+            toast.error("Gagal memuat data pencetakan");
         }
     };
 
-    const filteredPatients = useMemo(() => {
-        const lowerSearch = searchTerm.toLowerCase();
-        if (!lowerSearch) return patients;
-        return patients.filter(p =>
-            p.name.toLowerCase().includes(lowerSearch) ||
-            p.address.toLowerCase().includes(lowerSearch) ||
-            p.rm.includes(lowerSearch)
-        );
-    }, [patients, searchTerm]);
+    const filteredPatients = patients.filter(p => {
+        const query = searchTerm.toLowerCase();
+        const matchesSearch = 
+            p.name.toLowerCase().includes(query) || 
+            (p.rm && p.rm.toLowerCase().includes(query));
+        
+        if (filterStatus === 'Semua') return matchesSearch;
+        if (filterStatus === 'Antrian') return matchesSearch && p.poli === 'Pemeriksaan';
+        if (filterStatus === 'Selesai') return matchesSearch && p.poli === 'Selesai';
+        return matchesSearch;
+    });
 
-    const paginatedPatients = useMemo(() => {
-        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        return filteredPatients.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-    }, [filteredPatients, currentPage]);
-
-    const totalPages = Math.ceil(filteredPatients.length / ITEMS_PER_PAGE);
-
-    const hasCompletedCurrentQueue = (patient: Patient) => {
-        const latestExamAt = latestExaminationAt[patient.id];
-        if (!latestExamAt) return false;
-
-        const queueEnteredAt = patient.updatedAt ? new Date(patient.updatedAt).getTime() : 0;
-        const examCompletedAt = new Date(latestExamAt).getTime();
-
-        return examCompletedAt + EXAM_COMPLETION_TOLERANCE_MS >= queueEnteredAt;
-    };
+    const itemsPerPage = 10;
+    const totalPages = Math.ceil(filteredPatients.length / itemsPerPage);
+    const paginatedPatients = filteredPatients.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
 
     return (
-        <div className="space-y-6 pb-20">
-            {/* Header Section */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-green-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-2xl border border-green-100 dark:border-dark-border transition-colors">
+        <div className="space-y-6">
+            <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">{examinationUnitLabel}</h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {isDentalClinic ? 'Daftar pasien yang siap masuk pelayanan dokter gigi.' : 'Daftar pasien yang terdaftar untuk pemeriksaan.'}
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{examinationUnitLabel}</h1>
+                    <p className="text-gray-500 dark:text-gray-400">Kelola antrian dan pemeriksaan {examinationQueueLabel} hari ini</p>
                 </div>
-                <div className="flex items-center gap-2 text-sm bg-green-100 dark:bg-green-900/30 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-green-600 dark:text-green-400">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                    </svg>
-                    <span className="font-bold text-green-700 dark:text-green-300">{patients.length} Pasien</span>
-                </div>
-            </div>
-
-            {/* Search and Filter Section */}
-            <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors flex flex-col md:flex-row gap-2">
-                <div className="relative flex-grow">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                        <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                        </svg>
-                    </div>
-                    <input
-                        type="text"
-                        className="block w-full pl-11 pr-4 py-3.5 border-transparent rounded-xl leading-5 bg-gray-50 dark:bg-gray-800 focus:bg-white dark:focus:bg-gray-900 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent sm:text-sm transition-all dark:text-white"
-                        placeholder="Cari Nama, Nomor RM, atau Alamat..."
-                        value={searchTerm}
-                        onChange={(e) => {
-                            setSearchTerm(e.target.value);
-                            setCurrentPage(1);
-                        }}
+                <div className="flex items-center gap-3">
+                    <input 
+                        type="date"
+                        className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                        value={selectedDateValue}
+                        onChange={(e) => handleDateChange(e.target.value)}
                     />
                 </div>
-                
-                {/* Date Picker */}
-                <div className="md:w-auto w-full">
-                     <input 
-                        type="date" 
-                        value={format(selectedDate, 'yyyy-MM-dd')}
-                        onChange={(e) => {
-                            if (e.target.value) {
-                                setSelectedDate(new Date(e.target.value));
-                            }
-                        }}
-                        className="block w-full md:w-48 px-4 py-3.5 border-transparent rounded-xl leading-5 bg-gray-50 dark:bg-gray-800 focus:bg-white dark:focus:bg-gray-900 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent sm:text-sm transition-all shadow-sm"
-                     />
-                </div>
-            </div>
+            </header>
 
-            {/* Table Section */}
-            <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border overflow-hidden transition-colors">
-                {loading ? (
-                    <div className="p-12 text-center">
-                        <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-green-500 border-t-transparent"></div>
-                        <p className="mt-4 text-gray-500 dark:text-gray-400 text-sm font-medium">Sedang memuat data...</p>
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
-                            <thead>
-                                <tr className="bg-gray-50 dark:bg-gray-800/50">
-                                    <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pasien</th>
-                                    <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">No. RM</th>
-                                    <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Detail</th>
-                                    <th scope="col" className="hidden md:table-cell px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
-                                    <th scope="col" className="relative px-6 py-4">
-                                        <span className="sr-only">Actions</span>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-dark-surface divide-y divide-gray-50 dark:divide-gray-800">
-                                {paginatedPatients.length === 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="md:col-span-3 space-y-4">
+                    <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-sm border border-gray-100 dark:border-dark-border overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 dark:border-dark-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+                                {(['Antrian', 'Selesai', 'Semua'] as const).map((status) => (
+                                    <button
+                                        key={status}
+                                        onClick={() => { setFilterStatus(status); setCurrentPage(1); }}
+                                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                                            filterStatus === status 
+                                                ? 'bg-white dark:bg-gray-700 shadow-sm text-primary-600 dark:text-primary-400' 
+                                                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        {status}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="relative">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
+                                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                </span>
+                                <input 
+                                    type="text" 
+                                    placeholder="Cari nama atau RM..." 
+                                    className="pl-10 pr-4 py-2 w-72 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:ring-2 focus:ring-primary-500 transition-all"
+                                    value={searchTerm}
+                                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50/50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase font-bold tracking-wider">
                                     <tr>
-                                        <td colSpan={5} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
-                                            <div className="flex flex-col items-center">
-                                                <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-full mb-3">
-                                                    <svg className="h-8 w-8 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                    </svg>
-                                                </div>
-                                                <p className="font-medium">Tidak ada pasien di {examinationQueueLabel}.</p>
-                                                <p className="text-sm mt-1">
-                                                    Daftarkan pasien baru dengan poli "{examinationUnitLabel}".
-                                                </p>
-                                            </div>
-                                        </td>
+                                        <th className="px-6 py-4">Pasien</th>
+                                        <th className="px-6 py-4">RM</th>
+                                        <th className="px-6 py-4">Kategori</th>
+                                        <th className="px-6 py-4">Waktu</th>
+                                        <th className="px-6 py-4 text-right">Aksi</th>
                                     </tr>
-                                ) : (
-                                    paginatedPatients.map((patient) => (
-                                        (() => {
-                                            const isCompleted = hasCompletedCurrentQueue(patient);
-
-                                            return (
-                                        <tr
-                                            key={patient.id}
-                                            onClick={() => navigate(`/pemeriksaan/${patient.id}`)}
-                                            className="hover:bg-green-50/50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer"
-                                        >
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <div className="h-11 w-11 flex-shrink-0 rounded-full bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900 dark:to-green-800 flex items-center justify-center text-green-700 dark:text-green-300 font-bold text-sm shadow-sm group-hover:scale-110 transition-transform">
-                                                        {patient.name.charAt(0).toUpperCase()}
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                                    {loading ? (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-12 text-center text-gray-500">Memuat data...</td>
+                                        </tr>
+                                    ) : paginatedPatients.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-12 text-center text-gray-500">Tidak ada pasien dalam daftar ini</td>
+                                        </tr>
+                                    ) : (
+                                        paginatedPatients.map((patient) => (
+                                            <tr key={patient.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors group">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-gray-900 dark:text-white group-hover:text-primary-600 transition-colors">
+                                                        {patient.name}
                                                     </div>
-                                                    <div className="ml-4">
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-green-700 dark:group-hover:text-green-400 transition-colors">
-                                                                {patient.name}
-                                                            </div>
-                                                            {isCompleted ? (
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
-                                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                                                                    </svg>
-                                                                    Sudah Diperiksa
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
-                                                                        <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zm-8.75-3.25a.75.75 0 011.5 0v3.19l2.28 1.315a.75.75 0 11-.75 1.299l-2.655-1.53A.75.75 0 019.25 10V6.75z" clipRule="evenodd" />
-                                                                    </svg>
-                                                                    Belum Diperiksa
+                                                    <div className="text-xs text-gray-500 dark:text-gray-400">{patient.ageDisplay} • {patient.gender}</div>
+                                                </td>
+                                                <td className="px-6 py-4 font-mono text-sm">{patient.rm || '-'}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 uppercase">
+                                                        {patient.category}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {patient.poli === 'Selesai' ? (
+                                                        <div className="flex flex-col">
+                                                            <span className="inline-flex items-center w-fit gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800">
+                                                                Selesai
+                                                            </span>
+                                                            {latestExaminationAt[patient.id] && (
+                                                                <span className="text-[10px] text-gray-400 mt-1">
+                                                                    {format(new Date(latestExaminationAt[patient.id]), 'HH:mm')}
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                                            Masuk {examinationUnitLabel}: {patient.updatedAt ? format(new Date(patient.updatedAt), 'dd MMM yyyy HH:mm', { locale: localeId }) : '-'}
+                                                    ) : (
+                                                        <span className="inline-flex items-center w-fit gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                            Antri
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    {patient.poli === 'Pemeriksaan' ? (
+                                                        <div className="flex justify-end gap-2">
+                                                            <button 
+                                                                onClick={() => handleRemoveFromQueue(patient.id, patient.name)}
+                                                                className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                                                                title="Kembalikan ke Pendaftaran"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => navigate(`/pemeriksaan/${patient.id}`)}
+                                                                className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-primary-500/20 transition-all flex items-center gap-2"
+                                                            >
+                                                                Periksa
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                                                            </button>
                                                         </div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 font-mono">
-                                                    {patient.rm}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm text-gray-900 dark:text-gray-200 font-medium">{patient.ageDisplay}</div>
-                                                <div className="text-xs text-gray-500 dark:text-gray-400">{patient.gender}</div>
-                                            </td>
-                                            <td className="hidden md:table-cell px-6 py-4">
-                                                <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title={patient.address}>
-                                                    {patient.address}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                <button
-                                                    className="inline-flex items-center px-3 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 rounded-lg text-xs font-bold transition-all mr-2 shadow-sm border border-blue-200 dark:border-blue-800"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleCallPatient(patient);
-                                                    }}
-                                                    title="Panggil Pasien Masuk"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5 mr-1">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                                                    </svg>
-                                                    MASUK
-                                                </button>
-                                                <button
-                                                    className="p-2 rounded-full text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-gray-800 transition-all mr-2"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        navigate(`/pemeriksaan/${patient.id}`);
-                                                    }}
-                                                    title="Mulai Pemeriksaan"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    className="p-2 rounded-full text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all mr-2"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        navigate(`/pasien/${patient.id}`);
-                                                    }}
-                                                    title="Edit Kunjungan / Pasien"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    className="p-2 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleRemoveFromQueue(patient.id, patient.name);
-                                                    }}
-                                                    title="Hapus dari Antrian"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                                    </svg>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                            );
-                                        })()
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                                                    ) : (
+                                                        <div className="flex justify-end gap-2">
+                                                            <button 
+                                                                onClick={() => openPrintModal(patient)}
+                                                                className="p-2 text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-all"
+                                                                title="Cetak Surat Sakit"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const examId = latestExamIdByPatient[patient.id];
+                                                                    const url = `/pemeriksaan/${patient.id}?tanggal=${selectedDateValue}${examId ? `&examId=${examId}` : ''}`;
+                                                                    navigate(url);
+                                                                }}
+                                                                className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-all"
+                                                                title="Edit Pemeriksaan"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="bg-gray-50 dark:bg-gray-800/50 px-4 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between sm:px-6">
-                        <div className="flex-1 flex justify-between sm:hidden">
-                            <button
-                                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                                disabled={currentPage === 1}
-                                className="relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-700 text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                            >
-                                Previous
-                            </button>
-                            <button
-                                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                                disabled={currentPage === totalPages}
-                                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-700 text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                            >
-                                Next
-                            </button>
-                        </div>
-                        <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                            <div>
-                                <p className="text-sm text-gray-700 dark:text-gray-400">
-                                    Halaman <span className="font-bold">{currentPage}</span> dari <span className="font-bold">{totalPages}</span>
-                                </p>
+                        {totalPages > 1 && (
+                            <div className="px-6 py-4 border-t border-gray-100 dark:border-dark-border flex items-center justify-between">
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                    Halaman {currentPage} dari {totalPages}
+                                </div>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-50"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+                                    </button>
+                                    <button 
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                        className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-50"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                                    disabled={currentPage === 1}
-                                    className="relative inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                                >
-                                    Sebelumnya
-                                </button>
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                                    disabled={currentPage === totalPages}
-                                    className="relative inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                                >
-                                    Selanjutnya
-                                </button>
+                        )}
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="bg-primary-600 rounded-2xl p-6 text-white shadow-lg shadow-primary-500/20">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-white/20 rounded-xl">
+                                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                            </div>
+                            <h3 className="font-bold">Status Antrian</h3>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-end">
+                                <span className="text-primary-100 text-sm italic italic">Menunggu</span>
+                                <span className="text-3xl font-black">{patients.filter(p => p.poli === 'Pemeriksaan').length}</span>
+                            </div>
+                            <div className="flex justify-between items-end">
+                                <span className="text-primary-100 text-sm italic">Selesai</span>
+                                <span className="text-3xl font-black">{filteredPatients.filter(p => p.poli === 'Selesai').length}</span>
                             </div>
                         </div>
                     </div>
-                )}
+                    
+                    <div className="bg-white dark:bg-dark-surface rounded-2xl p-6 border border-gray-100 dark:border-dark-border shadow-sm">
+                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Ringkasan Hari Ini</h4>
+                        <div className="space-y-4">
+                            <div className="flex gap-4 items-center">
+                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-xl">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                </div>
+                                <div>
+                                    <div className="text-sm font-bold text-gray-900 dark:text-white">{format(selectedDate, 'dd MMMM yyyy', { locale: localeId })}</div>
+                                    <div className="text-xs text-gray-500">Tanggal Operasional</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
+
+            {/* Modal Cetak Surat Sakit */}
+            {isPrintModalOpen && printData && settings && (
+                <div key="sks-print-modal-overlay" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 no-print">
+                    <div key="sks-modal-content" className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100 dark:border-dark-border flex justify-between items-center bg-white dark:bg-dark-surface">
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Cetak Surat Keterangan Sakit</h3>
+                            <button onClick={() => setIsPrintModalOpen(false)} className="text-gray-400 hover:text-gray-500 transition-colors">
+                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        <div className="bg-amber-50 dark:bg-amber-900/10 px-6 py-2 border-b border-amber-100 dark:border-amber-900/20">
+                            <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                                Nomor Surat Otomatis: {(settings.lastSickLeaveNumber || 0) + 1} / SKS / {format(new Date(), 'MM / yyyy')}
+                            </p>
+                        </div>
+
+                        <div className="flex-1 overflow-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Controls */}
+                            <div className="lg:col-span-1 space-y-5">
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Ukuran Kertas</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['A5', 'A4', 'F4'] as const).map(size => (
+                                            <button
+                                                key={size}
+                                                onClick={() => setPrintData({ ...printData, printSize: size })}
+                                                className={`py-2 px-1 rounded-xl border-2 font-bold transition-all text-xs ${
+                                                    printData.printSize === size 
+                                                        ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400' 
+                                                        : 'border-gray-100 dark:border-gray-800 text-gray-400'
+                                                }`}
+                                            >
+                                                {size}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Dari Tanggal</label>
+                                        <input 
+                                            type="date" 
+                                            className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                            value={printData.startDate}
+                                            onChange={e => {
+                                                const start = new Date(e.target.value);
+                                                const end = new Date(start);
+                                                const days = parseInt(String(printData.days)) || 1;
+                                                end.setDate(start.getDate() + days - 1);
+                                                setPrintData({ ...printData, startDate: e.target.value, endDate: format(end, 'yyyy-MM-dd') });
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Durasi (Hari)</label>
+                                        <input 
+                                            type="number" 
+                                            className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                            value={printData.days}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                if (val === '') {
+                                                    setPrintData({...printData, days: ''});
+                                                    return;
+                                                }
+                                                const d = parseInt(val) || 1;
+                                                const start = new Date(printData.startDate);
+                                                const end = new Date(start);
+                                                end.setDate(start.getDate() + d - 1);
+                                                setPrintData({ ...printData, days: d, endDate: format(end, 'yyyy-MM-dd') });
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Hingga Tanggal</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm"
+                                        value={printData.endDate}
+                                        readOnly
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic font-bold">Pekerjaan</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                        value={printData.occupation}
+                                        onChange={(e) => setPrintData({ ...printData, occupation: e.target.value })}
+                                        placeholder="Pekerjaan pasien..."
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic font-bold">Alamat Pasien</label>
+                                    <textarea
+                                        rows={2}
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                        value={printData.address}
+                                        onChange={(e) => setPrintData({ ...printData, address: e.target.value })}
+                                        placeholder="Alamat lengkap pasien..."
+                                    />
+                                </div>
+
+                                <div className="grid gap-3 pt-2">
+                                    <button
+                                        onClick={() => handleSaveSKS(false)}
+                                        className="w-full py-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-bold rounded-2xl transition-all flex items-center justify-center gap-2 border border-blue-200 dark:border-blue-800"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                        SIMPAN KE RIWAYAT
+                                    </button>
+                                    <button
+                                        onClick={() => handleSaveSKS(true)}
+                                        className="w-full py-4 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-2xl shadow-xl shadow-primary-500/20 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                        </svg>
+                                        CETAK SEKARANG
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Preview Area */}
+                            <div className="lg:col-span-2 bg-gray-50 dark:bg-gray-900/50 rounded-3xl overflow-auto border border-gray-100 dark:border-gray-800 p-8 flex justify-center">
+                                <div className="origin-top scale-[0.5] sm:scale-[0.7] md:scale-[0.85] transition-transform">
+                                    <SickLeaveCertificate
+                                        key={`preview-${printData.patient.id}-${printData.printSize}`}
+                                        patient={{ ...printData.patient, address: printData.address }}
+                                        settings={settings}
+                                        diagnosis={printData.diagnosis}
+                                        startDate={printData.startDate}
+                                        endDate={printData.endDate}
+                                        days={parseInt(String(printData.days)) || 0}
+                                        printSize={printData.printSize}
+                                        occupation={printData.occupation}
+                                        ticketNumber={`${(settings.lastSickLeaveNumber || 0) + 1} / SKS / ${format(new Date(), 'MM / yyyy')}`}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -17,9 +17,11 @@ import MedicineForm from './pages/MedicineForm'
 import ExaminationList from './pages/ExaminationList'
 import ExaminationForm from './pages/ExaminationForm'
 import Reports from './pages/Reports'
+import SKSList from './pages/SKSList'
 import ActivationPending from './pages/ActivationPending'
 import AdminDashboard from './pages/AdminDashboard'
 import DemoCatalog from './pages/DemoCatalog'
+import Settings from './pages/Settings'
 import ProtectedRoute from './components/ProtectedRoute'
 import NotFound from './pages/NotFound'
 // IMPORT PENTING: Memanggil ThemeProvider
@@ -31,7 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     {/* PEMBUNGKUS PENTING: ThemeProvider harus membungkus seluruh aplikasi */}
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <App>
             <Routes>
             <Route path="/login" element={<Login />} />
@@ -152,6 +154,24 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               element={
                 <ProtectedRoute>
                   <Reports />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/sks"
+              element={
+                <ProtectedRoute>
+                  <SKSList />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
                 </ProtectedRoute>
               }
             />

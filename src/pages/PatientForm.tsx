@@ -16,10 +16,12 @@ const schema = z.object({
   gender: z.enum(GENDERS, { required_error: 'Jenis kelamin wajib diisi' }),
   category: z.enum(CATEGORIES, { required_error: 'Kategori wajib diisi' }),
   address: z.string().min(5, 'Alamat wajib diisi'),
-  dob: z.string().optional().nullable(),
-  ageYears: z.string().optional(),
-  ageMonths: z.string().optional(),
+  occupation: z.string().nullable(),
+  dob: z.string().nullable(),
+  ageYears: z.string(),
+  ageMonths: z.string(),
   poli: z.enum(POLI_OPTIONS, { required_error: 'Poli wajib diisi' }),
+  namaSuami: z.string().optional(),
 }).refine(data => data.ageYears || data.ageMonths || data.dob, {
   message: 'Isi Umur (Tahun/Bulan) atau Tanggal Lahir',
   path: ['ageYears'],
@@ -66,11 +68,12 @@ function PatientForm() {
       name: '',
       namaSuami: '',
       address: '',
+      occupation: '',
       dob: '',
       ageYears: '',
       ageMonths: '',
       manualRm: '',
-      poli: 'Pendaftaran' as const,
+      poli: 'Pemeriksaan' as const,
     }
   });
 
@@ -99,10 +102,10 @@ function PatientForm() {
   }, [isEditMode, rmMode]);
 
   useEffect(() => {
-    if (!isEditMode && isDentalClinic) {
+    if (!isEditMode) {
       setValue('poli', 'Pemeriksaan');
     }
-  }, [isDentalClinic, isEditMode, setValue]);
+  }, [isEditMode, setValue]);
 
   useEffect(() => {
     if (isEditMode && patientId) {
@@ -119,6 +122,7 @@ function PatientForm() {
             setValue('gender', data.gender);
             setValue('category', data.category);
             setValue('address', data.address);
+            setValue('occupation', data.occupation || '');
             setValue('dob', data.dob || '');
             setValue('ageYears', data.ageYears ? String(data.ageYears) : '');
             setValue('ageMonths', data.ageMonths ? String(data.ageMonths) : '');
@@ -191,6 +195,7 @@ function PatientForm() {
         gender: data.gender,
         category: data.category,
         address: data.address,
+        occupation: data.occupation || null,
         dob: data.dob ? data.dob : null,
         ageYears,
         ageMonths,
@@ -202,14 +207,26 @@ function PatientForm() {
 
       if (isEditMode && patientId) {
         // UPDATE
-        await api.put(`/patients/${patientId}`, {
+        const updatedPatient = {
           ...commonData,
+          id: patientId,
+          rm: finalRm,
+          createdAt: now,
+        };
+
+        await api.put(`/patients/${patientId}`, {
+          ...updatedPatient,
           rm: finalRm
         });
 
         // KIRIM NOTIFIKASI JIKA UPDATE KE POLI PEMERIKSAAN
         if (data.poli === 'Pemeriksaan') {
-            broadcastPatientQueueUpdate({ patientId, source: 'patient-form-edit' });
+            broadcastPatientQueueUpdate({
+              action: 'enqueue',
+              patientId,
+              patient: updatedPatient as any,
+              source: 'patient-form-edit',
+            });
             try {
                 await api.post('/notifications', {
                     type: 'NEW_PATIENT',
@@ -236,7 +253,15 @@ function PatientForm() {
         
         // KIRIM NOTIFIKASI JIKA MASUK POLI PEMERIKSAAN
         if (data.poli === 'Pemeriksaan') {
-            broadcastPatientQueueUpdate({ patientId: docRef?.id, source: 'patient-form-create' });
+            broadcastPatientQueueUpdate({
+              action: 'enqueue',
+              patientId: docRef?.id,
+              patient: {
+                ...(patientData as any),
+                id: docRef?.id || Date.now().toString(),
+              },
+              source: 'patient-form-create',
+            });
             try {
                 await api.post('/notifications', {
                     type: 'NEW_PATIENT',
@@ -439,6 +464,16 @@ function PatientForm() {
               placeholder="Jalan, RT/RW, Desa..."
             />
             {errors.address && <p className="mt-1 text-sm text-red-600">{errors.address.message}</p>}
+          </div>
+
+          {/* Pekerjaan */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Pekerjaan</label>
+            <input
+              {...register('occupation')}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
+              placeholder="Contoh: PNS, Karyawan Swasta, Ibu Rumah Tangga..."
+            />
           </div>
 
           {/* Poli */}

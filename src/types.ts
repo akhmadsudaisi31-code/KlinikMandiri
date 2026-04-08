@@ -8,7 +8,7 @@ export const CATEGORIES = [
   "Anak",
   "Bayi",
 ] as const;
-export const POLI_OPTIONS = ["Pendaftaran", "Pemeriksaan"] as const;
+export const POLI_OPTIONS = ["Pendaftaran", "Pemeriksaan", "Selesai"] as const;
 export const MEDICINE_UNITS = [
   "Tablet",
   "Kapsul",
@@ -33,6 +33,7 @@ export interface Patient {
   gender: Gender;
   category: Category;
   address: string;
+  occupation?: string;
   dob: string | null;
   ageYears: number | null;
   ageMonths: number | null;
@@ -134,6 +135,8 @@ export const EXAM_CATEGORIES = [
   "Lansia",
   "Bumil",
   "Odontologi",
+  "KB",
+  "Anak",
 ] as const;
 export type ExamCategory = (typeof EXAM_CATEGORIES)[number];
 
@@ -181,7 +184,8 @@ export interface PatientFormData {
   gender: Gender;
   category: Category;
   address: string;
-  dob: string;
+  occupation: string | null;
+  dob: string | null;
   ageYears: string;
   ageMonths: string;
   poli: PoliType;
@@ -196,6 +200,24 @@ export interface Clinic {
   status: "pending" | "active" | "inactive";
   isAdmin: number; // 0: false, 1: true
   subscriptionPlan?: string;
+}
+
+export interface ClinicSettings {
+  clinicId: string;
+  clinicName?: string;
+  doctorName: string;
+  doctorNip?: string;
+  clinicAddress?: string;
+  clinicPhone?: string;
+  lastSickLeaveNumber?: number;
+  sickLeaveTemplate: string;
+  enabledFeatures: {
+    anc: boolean;
+    kb: boolean;
+    immunization: boolean;
+    dental: boolean;
+  };
+  updatedAt?: string;
 }
 
 export const ALL_FEATURES = [

@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS examinations (
     extendedData_json TEXT, -- Data spesifik kategori (Bumil, Anak, dll)
     date DATETIME DEFAULT CURRENT_TIMESTAMP,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     createdBy TEXT,
     FOREIGN KEY (clinicId) REFERENCES clinics(id),
     FOREIGN KEY (patientId) REFERENCES patients(id)
@@ -102,6 +103,8 @@ CREATE TABLE IF NOT EXISTS visits (
     therapy TEXT,
     notes TEXT,
     cost REAL DEFAULT 0,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     createdBy TEXT,
     FOREIGN KEY (clinicId) REFERENCES clinics(id),
     FOREIGN KEY (patientId) REFERENCES patients(id)
@@ -118,6 +121,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     isRead INTEGER DEFAULT 0,
     toRole TEXT,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (clinicId) REFERENCES clinics(id)
 );
 
@@ -147,3 +151,41 @@ CREATE INDEX IF NOT EXISTS idx_visits_patientId ON visits(patientId);
 CREATE INDEX IF NOT EXISTS idx_notifications_clinicId ON notifications(clinicId);
 CREATE INDEX IF NOT EXISTS idx_icd_codes_source_code ON icd_codes(source, code);
 CREATE INDEX IF NOT EXISTS idx_icd_codes_source_compact ON icd_codes(source, code_compact);
+
+-- Tabel Setting Klinik
+CREATE TABLE IF NOT EXISTS clinic_settings (
+    clinicId TEXT PRIMARY KEY,
+    clinicName TEXT,
+    doctorName TEXT,
+    doctorNip TEXT,
+    clinicAddress TEXT,
+    clinicPhone TEXT,
+    lastSickLeaveNumber INTEGER DEFAULT 0,
+    sickLeaveTemplate TEXT,
+    enabledFeatures_json TEXT DEFAULT '{"anc": true, "kb": true, "immunization": true, "dental": true}',
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (clinicId) REFERENCES clinics(id)
+);
+
+-- Tabel Riwayat SKS (Sick Leave Records)
+CREATE TABLE IF NOT EXISTS sks_records (
+    id TEXT PRIMARY KEY,
+    clinicId TEXT NOT NULL,
+    patientId TEXT NOT NULL,
+    patientName TEXT NOT NULL,
+    patientRm TEXT,
+    diagnosis TEXT,
+    occupation TEXT,
+    address TEXT,
+    startDate TEXT,
+    endDate TEXT,
+    days INTEGER,
+    ticketNumber TEXT,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (clinicId) REFERENCES clinics(id),
+    FOREIGN KEY (patientId) REFERENCES patients(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sks_clinicId ON sks_records(clinicId);
+CREATE INDEX IF NOT EXISTS idx_sks_patientId ON sks_records(patientId);

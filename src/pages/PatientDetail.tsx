@@ -11,6 +11,7 @@ import { id as localeId } from 'date-fns/locale';
 import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
 import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
+import { subscribeDataSync } from '../utils/dataSync';
 
 type VisitFormData = {
   diagnosis: string;
@@ -40,25 +41,44 @@ function PatientDetail() {
   useEffect(() => {
     if (!id || !user) return;
 
+    let isMounted = true;
+
     const fetchData = async () => {
       try {
         const p = await api.get(`/patients/${id}`);
-        setPatient(p);
+        if (isMounted) {
+          setPatient(p);
+        }
 
         const v = await api.get(`/visits?patientId=${id}`);
-        setVisits(v || []);
+        if (isMounted) {
+          setVisits(v || []);
+        }
 
         const e = await api.get(`/examinations?patientId=${id}`);
-        setExaminations(e || []);
+        if (isMounted) {
+          setExaminations(e || []);
+        }
       } catch (e: any) {
         console.error(e);
         toast.error("Gagal memuat data");
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchData();
+
+    const unsubscribe = subscribeDataSync(['patients', 'visits', 'examinations'], () => {
+      fetchData();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [id, user]);
 
   const handleDelete = async () => {
@@ -80,11 +100,21 @@ function PatientDetail() {
     if (!patient || !user) return;
     if (window.confirm(`Tambahkan ${patient.name} ke antrian ${examinationUnitLabel}?`)) {
       try {
+        const queuedAt = new Date().toISOString();
         await api.put(`/patients/${patient.id}`, {
           poli: "Pemeriksaan",
-          updatedAt: new Date().toISOString()
+          updatedAt: queuedAt
         });
-        broadcastPatientQueueUpdate({ patientId: patient.id, source: 'patient-detail' });
+        broadcastPatientQueueUpdate({
+          action: 'enqueue',
+          patientId: patient.id,
+          patient: {
+            ...patient,
+            poli: 'Pemeriksaan',
+            updatedAt: queuedAt,
+          },
+          source: 'patient-detail',
+        });
 
         // Kirim Notifikasi ke Pemeriksa
         try {
@@ -167,10 +197,22 @@ function PatientDetail() {
             </div>
 
             <div className="space-y-4 text-sm border-t border-gray-100 dark:border-gray-800 pt-6">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-gray-400">Kategori</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{patient.category}</span>
-              </div>
+               <div className="flex justify-between items-center">
+                 <span className="text-gray-500 dark:text-gray-400">Status Layanan</span>
+                 <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
+                    patient.poli === 'Pemeriksaan' 
+                      ? 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/20 dark:text-orange-400' 
+                      : patient.poli === 'Selesai'
+                      ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-400'
+                      : 'bg-primary-50 text-primary-600 border-primary-100 dark:bg-primary-900/10 dark:text-primary-400'
+                 }`}>
+                   {patient.poli === 'Pemeriksaan' ? examinationQueueLabel : patient.poli === 'Selesai' ? 'Sudah Diperiksa' : patient.poli}
+                 </span>
+               </div>
+               <div className="flex justify-between items-center">
+                 <span className="text-gray-500 dark:text-gray-400">Kategori</span>
+                 <span className="font-semibold text-gray-900 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{patient.category}</span>
+               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-500 dark:text-gray-400">Jenis Kelamin</span>
                 <span className="font-medium text-gray-900 dark:text-gray-200">{patient.gender}</span>

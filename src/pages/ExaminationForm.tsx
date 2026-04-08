@@ -1,21 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
-import { Patient, Medicine, MedicineItem, EXAM_CATEGORIES } from "../types";
+import { Patient, Medicine, MedicineItem, EXAM_CATEGORIES, ClinicSettings } from "../types";
 import { format, addDays, subMonths, addYears } from "date-fns";
 import toast from "react-hot-toast";
 import { MedicineSelectorModal } from "../components/MedicineSelectorModal";
 import { ExaminationDetailModal } from "../components/ExaminationDetailModal";
-import { OdontogramEditor } from "../components/OdontogramEditor";
-import { Icd10Autocomplete } from "../components/Icd10Autocomplete";
 import { GENERAL_ICD10_ITEMS, Icd10Item } from "../data/icd10";
 import { DENTAL_ICD10_ITEMS } from "../data/dentalIcd10";
 import { createDefaultOdontogram, normalizeOdontogram, OdontogramTooth } from "../utils/dental";
 import { getExamPageTitle, isDentalClinicType } from "../utils/clinic";
+import { SoapSection } from "../components/ExaminationForm/SoapSection";
+import { SpecialtySection } from "../components/ExaminationForm/SpecialtySection";
+import { MedicineSection } from "../components/ExaminationForm/MedicineSection";
+import { broadcastPatientQueueUpdate } from "../utils/patientQueueSync";
 
 const schema = z.object({
   // S
@@ -112,6 +114,9 @@ type ExaminationFormData = z.infer<typeof schema>;
 
 function ExaminationForm() {
   const { patientId } = useParams<{ patientId: string }>();
+  const [searchParams] = useSearchParams();
+  const dateParam = searchParams.get('tanggal');
+  const examIdParam = searchParams.get('examId');
   const navigate = useNavigate();
 
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -137,6 +142,7 @@ function ExaminationForm() {
   const [icd10Items, setIcd10Items] = useState<Icd10Item[]>([]);
   const isDentalClinic = isDentalClinicType(user?.clinicType);
   const examPageTitle = getExamPageTitle(user?.clinicType);
+  const [settings, setSettings] = useState<ClinicSettings | null>(null);
 
   const {
     register,
@@ -234,10 +240,20 @@ function ExaminationForm() {
     },
   });
 
+  const availableCategories = useMemo(() => {
+    if (!settings) return EXAM_CATEGORIES;
+    
+    return EXAM_CATEGORIES.filter(cat => {
+      if (cat === 'Bumil' && !settings.enabledFeatures.anc) return false;
+      if (cat === 'Odontologi' && !settings.enabledFeatures.dental) return false;
+      if (cat === 'KB' && !settings.enabledFeatures.kb) return false;
+      if (cat === 'Anak' && !settings.enabledFeatures.immunization) return false;
+      return true;
+    });
+  }, [settings]);
+
   const watchCategory = watch("examCategory");
   const watchHpht = watch("hpht");
-  const watchIsKb = watch("isKb");
-  const watchIsPersalinan = watch("isPersalinan");
   const watchIcd10 = watch("icd10");
   const icd10Placeholder = isDentalClinic
     ? "Cari kode atau nama ICD-10 gigi..."
@@ -256,13 +272,6 @@ function ExaminationForm() {
     setValue("biaya", rawValue, { shouldDirty: true, shouldValidate: true });
   };
 
-  const handleSelectIcd10 = (item: { code: string; title: string }) => {
-    setValue("icd10", item.code, { shouldDirty: true, shouldValidate: true });
-    const currentDiagnosis = watch("diagnosa");
-    if (!currentDiagnosis || currentDiagnosis.trim() === "") {
-      setValue("diagnosa", item.title, { shouldDirty: true, shouldValidate: true });
-    }
-  };
 
   useEffect(() => {
     const fallbackItems = (
@@ -388,13 +397,50 @@ function ExaminationForm() {
       try {
         const meds = await api.get("/medicines");
         setMedicines(meds || []);
-      } catch (e) {
-        console.error(e);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        toast.error("Gagal memuat data pasien/obat");
       }
     };
+
+    const fetchSettings = async () => {
+      try {
+        const data = await api.get('/settings');
+        setSettings(data);
+      } catch (e) {
+        console.error("Gagal memuat pengaturan:", e);
+      }
+    };
+
     fetchHistory();
     fetchMedicines();
+    fetchSettings();
   }, [patientId, user]);
+
+  useEffect(() => {
+    const triggerEdit = async () => {
+      if (examIdParam && !editingExamId) {
+        try {
+          const exam = await api.get(`/examinations/${examIdParam}`);
+          if (exam) {
+            handleEdit(exam);
+          }
+        } catch (e) {
+          console.error("Gagal memuat pemeriksaan spesifik:", e);
+        }
+      } else if (dateParam && patientHistory.length > 0 && !editingExamId) {
+        const exam = patientHistory.find(e => {
+          const d = e.createdAt || e.date;
+          return d && format(new Date(d), 'yyyy-MM-dd') === dateParam;
+        });
+        if (exam) {
+          handleEdit(exam);
+        }
+      }
+    };
+    
+    triggerEdit();
+  }, [examIdParam, dateParam, patientHistory, editingExamId]);
 
   const handleAddMedicine = (medicineId: string) => {
     const medicine = medicines.find((m) => m.id === medicineId);
@@ -659,8 +705,25 @@ function ExaminationForm() {
         examinationData.createdAt = now;
         examinationData.createdBy = user.uid;
         await api.post("/examinations", examinationData);
+        
+        // Update Status to 'Selesai' (Sudah Diperiksa)
+        try {
+          await api.put(`/patients/${patient.id}`, {
+            poli: "Selesai",
+            updatedAt: now
+          });
+          
+          broadcastPatientQueueUpdate({
+            action: 'dequeue',
+            patientId: patient.id,
+            source: 'examination-form-complete',
+          });
+        } catch (queueError) {
+          console.error("Gagal update status antrian:", queueError);
+        }
+
         toast.success(
-          `${isDentalClinic ? "Pelayanan gigi" : "Pemeriksaan"} berhasil disimpan. Dialihkan ke Riwayat Pasien.`,
+          `${isDentalClinic ? "Pelayanan gigi" : "Pemeriksaan"} berhasil disimpan.`,
         );
         navigate(`/pasien/${patient.id}`);
       }
@@ -794,17 +857,17 @@ function ExaminationForm() {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <input type="hidden" {...register("examCategory")} />
 
-        {!isDentalClinic && (
+        {!isDentalClinic && availableCategories.length > 1 && (
           <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border flex flex-wrap gap-2">
-            {EXAM_CATEGORIES.filter((cat) => cat !== "Odontologi").map((cat) => (
+            {availableCategories.filter((cat) => cat !== "Odontologi").map((cat) => (
               <button
                 key={cat}
                 type="button"
                 onClick={() => setValue("examCategory", cat)}
-                className={`flex-1 min-w-[100px] py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
                   watchCategory === cat
                     ? "bg-primary-600 text-white shadow-lg shadow-primary-200"
-                    : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    : "text-gray-500 hover:bg-gray-100"
                 }`}
               >
                 {cat}
@@ -813,1171 +876,85 @@ function ExaminationForm() {
           </div>
         )}
 
-        {/* S - SUBJECTIVE */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
-          <div className="bg-primary-500 px-6 py-3 flex justify-between items-center">
-            <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              S - SUBJECTIVE (Anamnesis)
-            </h3>
-            <span className="px-3 py-1 bg-white/20 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">
-              {watchCategory}
-            </span>
-          </div>
-          <div className="p-6 space-y-4">
-            <div>
-              <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                Keluhan Utama <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                {...register("keluhanUtama")}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-xl focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 transition-all outline-none text-gray-900 dark:text-white font-medium shadow-sm"
-                rows={2}
-                placeholder="Contoh: Panas sejak 3 hari yang lalu..."
-              />
-              {errors.keluhanUtama && (
-                <p className="mt-1 text-xs text-red-500 font-bold">
-                  {errors.keluhanUtama.message}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                Riwayat Penyakit Sekarang
-              </label>
-              <textarea
-                {...register("riwayatPenyakitSekarang")}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-xl focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 transition-all outline-none text-gray-900 dark:text-white font-medium shadow-sm"
-                rows={3}
-                placeholder="Detail perjalanan penyakit..."
-              />
-            </div>
+        {/* Odontogram has been moved to SoapSection for better integration */}
 
-            {/* ALLERGY INPUT */}
-            <div className="pt-2">
-              <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30">
-                <label className="block text-[11px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                    stroke="currentColor"
-                    className="w-4 h-4"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-                    />
-                  </svg>
-                  RIWAYAT ALERGI (Data Permanen)
-                </label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="text"
-                    value={newAllergy}
-                    onChange={(e) => setNewAllergy(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddAllergy();
-                      }
-                    }}
-                    className="w-full sm:flex-1 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-red-300 dark:border-red-800 rounded-lg focus:ring-4 focus:ring-red-500/20 focus:border-red-500 outline-none text-sm font-bold text-red-700 dark:text-red-400 shadow-sm"
-                    placeholder="Ketik alergi (contoh: Amoxicillin)..."
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddAllergy}
-                    disabled={!newAllergy.trim()}
-                    className="w-full sm:w-auto px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      className="w-4 h-4"
-                    >
-                      <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+        {/* --- ALLERGY SECTION --- */}
+        <div className="bg-red-50 dark:bg-red-900/10 p-6 rounded-2xl shadow-soft border border-red-100 dark:border-red-900/30">
+          <label className="block text-xs font-black text-red-600 dark:text-red-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            RIWAYAT ALERGI (Data Permanen)
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={newAllergy}
+              onChange={(e) => setNewAllergy(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleAddAllergy(); }
+              }}
+              className="w-full sm:flex-1 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-red-200 dark:border-red-900/30 rounded-xl focus:ring-4 focus:ring-red-100 focus:border-red-500 outline-none text-sm font-bold text-red-700 dark:text-red-400"
+              placeholder="Ketik alergi (contoh: Amoxicillin)..."
+            />
+            <button
+              type="button"
+              onClick={handleAddAllergy}
+              disabled={!newAllergy.trim()}
+              className="px-8 py-3 bg-red-600 text-white font-black rounded-xl hover:bg-red-700 disabled:opacity-50 transition-all uppercase tracking-widest text-xs"
+            >
+              Tambah
+            </button>
+          </div>
+          {allergyList.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-4">
+              {allergyList.map((allergy, index) => (
+                <span key={index} className="inline-flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-red-900/50 text-red-700 dark:text-red-400 rounded-lg text-xs font-black border border-red-100 dark:border-red-900/30 shadow-sm uppercase">
+                  {allergy}
+                  <button type="button" onClick={() => handleRemoveAllergy(allergy)} className="text-red-400 hover:text-red-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                     </svg>
-                    Tambah
                   </button>
-                </div>
-                {allergyList.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-4">
-                    {allergyList.map((allergy, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-bold border border-red-200 dark:border-red-800"
-                      >
-                        {allergy}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAllergy(allergy)}
-                          className="p-0.5 hover:bg-red-200 dark:hover:bg-red-800 rounded-md transition-colors"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 20 20"
-                            fill="currentColor"
-                            className="w-4 h-4"
-                          >
-                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+                </span>
+              ))}
             </div>
-
-            {isDentalClinic && (
-              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Jenis Kunjungan
-                    </label>
-                    <select
-                      {...register("dentalVisitType")}
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    >
-                      <option value="Baru">Baru</option>
-                      <option value="Kontrol">Kontrol</option>
-                      <option value="Darurat">Darurat</option>
-                      <option value="Rujukan">Rujukan</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Skala Nyeri
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      {...register("dentalPainScale")}
-                      placeholder="0-10"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Riwayat Medis / Alergi yang Relevan
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalMedicalHistory")}
-                      placeholder="Diabetes, hipertensi, antikoagulan, kehamilan, dsb."
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Kebiasaan / Faktor Risiko
-                    </label>
-                    <textarea
-                      {...register("dentalHabits")}
-                      rows={2}
-                      placeholder="Merokok, kopi, bruxism, kebersihan mulut, kebiasaan menggigit benda."
-                      className="w-full px-4 py-3 bg-cyan-50/40 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Riwayat Perawatan Gigi
-                    </label>
-                    <textarea
-                      {...register("dentalTreatmentHistory")}
-                      rows={2}
-                      placeholder="Pencabutan, tambal, scaling, RCT, prostesis sebelumnya."
-                      className="w-full px-4 py-3 bg-cyan-50/40 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* CATEGORY SPECIFIC SUBJECTIVE */}
-            {watchCategory === "Bumil" && (
-              <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-                <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-3">
-                  Data Pelayanan ANC
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      HPHT
-                    </label>
-                    <input
-                      type="date"
-                      {...register("hpht")}
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      HPL (HARI PERKIRAAN LAHIR)
-                    </label>
-                    <input
-                      type="date"
-                      {...register("hpl")}
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Hamil Ke
-                    </label>
-                    <input
-                      type="text"
-                      {...register("hamilKe")}
-                      placeholder="Contoh: 1"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Usia Kehamilan (UK)
-                    </label>
-                    <input
-                      type="text"
-                      {...register("usiaKehamilan")}
-                      placeholder="Contoh: 12 Minggu"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      LILA (cm)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      {...register("lila")}
-                      placeholder="Lingkar Lengan"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Status TT
-                    </label>
-                    <select
-                      {...register("statusTT")}
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    >
-                      <option value="">Pilih</option>
-                      <option value="T1">T1</option>
-                      <option value="T2">T2</option>
-                      <option value="T3">T3</option>
-                      <option value="T4">T4</option>
-                      <option value="T5">T5</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Kunjungan K1 / K4
-                    </label>
-                    <select
-                      {...register("kunjunganAnc")}
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    >
-                      <option value="">Tidak Keduanya</option>
-                      <option value="K1">K1</option>
-                      <option value="K4">K4</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Skor Puji Rochjati
-                    </label>
-                    <input
-                      type="number"
-                      {...register("skor")}
-                      placeholder="Skor Risiko"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Anak Terkecil
-                    </label>
-                    <input
-                      type="text"
-                      {...register("anakTerkecil")}
-                      placeholder="Usia anak terkecil"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      USG
-                    </label>
-                    <input
-                      type="text"
-                      {...register("usg")}
-                      placeholder="Hasil ringkas USG"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-600 rounded-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {watchCategory === "Bumil" && (
-              <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-                <div className="mb-4">
-                   <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                     Nama Suami / Penanggung Jawab
-                   </label>
-                   <input
-                     type="text"
-                     {...register("namaSuami")}
-                     placeholder="Nama suami"
-                     className="w-full md:w-1/2 px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                   />
-                </div>
-                {/* Optional Persalinan Form Header */}
-                <div className="bg-purple-50 dark:bg-purple-900/10 p-4 rounded-xl border border-purple-100 dark:border-purple-900/30">
-                  <label className="flex items-center gap-2 cursor-pointer mb-2">
-                    <input
-                      type="checkbox"
-                      {...register("isPersalinan")}
-                      className="w-4 h-4 text-purple-500 rounded focus:ring-purple-500 cursor-pointer"
-                    />
-                    <span className="text-[11px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest flex items-center gap-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={2.5}
-                        stroke="currentColor"
-                        className="w-4 h-4"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      Tambah Data Pelayanan Persalinan
-                    </span>
-                  </label>
-
-                  {watchIsPersalinan && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 animate-in fade-in slide-in-from-top-2">
-                      <div className="col-span-2 md:col-span-1">
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Tgl & Jam Partus
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="date"
-                            {...register("tglPartus")}
-                            className="w-1/2 px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                          />
-                          <input
-                            type="time"
-                            {...register("jamPartus")}
-                            className="w-1/2 px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Hamil Ke
-                        </label>
-                        <input
-                          type="text"
-                          {...register("hamilKe")}
-                          placeholder="Contoh: 1"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Usia Kehamilan (UK)
-                        </label>
-                        <input
-                          type="text"
-                          {...register("usiaKehamilan")}
-                          placeholder="Contoh: 39 Minggu"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Jenis Persalinan
-                        </label>
-                        <input
-                          type="text"
-                          {...register("jenisPersalinan")}
-                          placeholder="Spontan, SC"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Penolong
-                        </label>
-                        <input
-                          type="text"
-                          {...register("penolong")}
-                          placeholder="Bidan, Dokter"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Tempat
-                        </label>
-                        <input
-                          type="text"
-                          {...register("tempat")}
-                          placeholder="PMB, RS, Puskesmas"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Apgar Score (AS)
-                        </label>
-                        <input
-                          type="text"
-                          {...register("as")}
-                          placeholder="7/8/9"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {watchCategory === "Umum" && (
-              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">
-                    Riwayat Imunisasi & Tumbuh Kembang (Opsional untuk
-                    Anak/Balita)
-                  </label>
-                  <textarea
-                    {...register("statusImunisasi")}
-                    rows={2}
-                    className="w-full px-4 py-2 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800 rounded-lg text-sm"
-                    placeholder="Contoh: Lengkap sesuai usia, KPSP sesuai..."
-                  />
-                </div>
-
-                {/* Optional KB Form */}
-                <div className="bg-primary-50 dark:bg-primary-900/10 p-4 rounded-xl border border-primary-100 dark:border-primary-900/30">
-                  <label className="flex items-center gap-2 cursor-pointer mb-2">
-                    <input
-                      type="checkbox"
-                      {...register("isKb")}
-                      className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500 cursor-pointer"
-                    />
-                    <span className="text-[11px] font-black text-primary-600 dark:text-primary-400 uppercase tracking-widest flex items-center gap-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={2.5}
-                        stroke="currentColor"
-                        className="w-4 h-4"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
-                        />
-                      </svg>
-                      Tambah Form Keluarga Berencana (KB)
-                    </span>
-                  </label>
-
-                  {watchIsKb && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 animate-in fade-in slide-in-from-top-2">
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Akseptor
-                        </label>
-                        <select
-                          {...register("akseptor")}
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-primary-300 dark:border-primary-600 rounded-lg focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        >
-                          <option value="">Pilih...</option>
-                          <option value="Baru">Baru</option>
-                          <option value="Lama">Lama</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Metode KB
-                        </label>
-                        <select
-                          {...register("metodeKb")}
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-primary-300 dark:border-primary-600 rounded-lg focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        >
-                          <option value="">Pilih...</option>
-                          <option value="Suntik 1 Bulan">Suntik 1 Bulan</option>
-                          <option value="Suntik 3 Bulan">Suntik 3 Bulan</option>
-                          <option value="Pil">Pil</option>
-                          <option value="IUD">IUD</option>
-                          <option value="Implant">Implant</option>
-                          <option value="Kondom">Kondom</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Tanggal Kembali
-                        </label>
-                        <input
-                          type="date"
-                          {...register("tglKembaliKb")}
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-primary-300 dark:border-primary-600 rounded-lg focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                      <div className="md:col-span-2 lg:col-span-4">
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                          Keluhan KB
-                        </label>
-                        <input
-                          type="text"
-                          {...register("keluhanKb")}
-                          placeholder="Contoh: Spotting, Pusing..."
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-primary-300 dark:border-primary-600 rounded-lg focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
-        {/* O - OBJECTIVE */}
-        <div className="relative z-20 bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-visible">
-          <div className="bg-green-500 px-6 py-3">
-            <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              O - OBJECTIVE ({isDentalClinic ? "Pemeriksaan Extraoral, Intraoral, dan Odontogram" : "Pemeriksaan Fisik"})
-            </h3>
-          </div>
-          <div className="p-6 space-y-6">
-            {!isDentalClinic && (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    Tensi (mmHg)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("tensi")}
-                    placeholder="120/80"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    Nadi (/mnt)
-                  </label>
-                  <input
-                    type="number"
-                    {...register("nadi")}
-                    placeholder="80"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    Suhu (°C)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("suhu")}
-                    placeholder="36.5"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    Resp (/mnt)
-                  </label>
-                  <input
-                    type="number"
-                    {...register("respirasi")}
-                    placeholder="20"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    BB (kg)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("bb")}
-                    placeholder="60"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    TB (cm)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("tb")}
-                    placeholder="165"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase">
-                    SPO2 (%)
-                  </label>
-                  <input
-                    type="number"
-                    {...register("spo2")}
-                    placeholder="98"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-4 focus:ring-gray-500/20 focus:border-gray-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-              </div>
-            )}
+        {/* --- MODULAR SECTIONS --- */}
+        <SoapSection
+          register={register}
+          errors={errors}
+          setValue={setValue}
+          watch={watch}
+          icd10Items={icd10Items}
+          icd10Placeholder={icd10Placeholder}
+          isDentalClinic={isDentalClinic}
+          odontogram={odontogram}
+          setOdontogram={setOdontogram}
+        />
 
-            <div className="relative z-30">
-              <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                {isDentalClinic ? "Temuan Klinis Ringkas" : "Pemeriksaan Fisik"}
-              </label>
-              <textarea
-                {...register("pemeriksaanFisik")}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-green-500 focus:bg-white transition-all outline-none"
-                rows={3}
-                placeholder={isDentalClinic ? "Contoh: 36 karies profunda, perkusi (+), gingiva regio 11-13 hiperemis." : "Status generalis, kepala, leher, dada, perut, ekstremitas..."}
-              />
-            </div>
+        <SpecialtySection
+          register={register}
+          errors={errors}
+          watch={watch}
+          category={watchCategory}
+        />
 
-            {isDentalClinic && (
-              <div className="space-y-6 pt-6 border-t border-green-100 dark:border-green-900/30">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Pemeriksaan Extraoral
-                    </label>
-                    <textarea
-                      {...register("dentalExtraOral")}
-                      rows={2}
-                      placeholder="Asimetri wajah, TMJ, pembesaran KGB, pembengkakan."
-                      className="w-full px-4 py-3 bg-cyan-50/50 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Pemeriksaan Intraoral
-                    </label>
-                    <textarea
-                      {...register("dentalIntraOral")}
-                      rows={2}
-                      placeholder="Mukosa, lidah, palatum, saliva, lesi intraoral."
-                      className="w-full px-4 py-3 bg-cyan-50/50 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-900/30 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                </div>
+        <MedicineSection
+          selectedMedicines={selectedMedicines}
+          onRemove={(id) => setSelectedMedicines(prev => prev.filter(m => m.medicineId !== id))}
+          onRuleChange={handleMedicineRuleChange}
+          onOpenSelector={() => setIsModalOpen(true)}
+          biayaDisplay={biayaDisplay}
+          onBiayaChange={handleBiayaChange}
+          onBlurBiaya={() => setBiayaDisplay(formatBiayaDisplay(biayaDisplay))}
+          isDentalClinic={isDentalClinic}
+        />
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Oklusi
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalOcclusion")}
-                      placeholder="Normal bite, crossbite, open bite"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Kebersihan Mulut
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalOralHygiene")}
-                      placeholder="Baik / Sedang / Buruk"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Gingiva / Periodontal
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalGingiva")}
-                      placeholder="Sehat, inflamasi, resesi, pocket"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Indeks Plak
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalPlaqueIndex")}
-                      placeholder="Ringan / Sedang / Berat"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Kalkulus
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalCalculus")}
-                      placeholder="Tidak ada / Supra / Subgingiva"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      BOP / Pocket
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalBleedingOnProbing")}
-                      placeholder="BOP (+), pocket 4 mm"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Palpasi
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalPalpation")}
-                      placeholder="Nyeri tekan (+/-)"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Perkusi
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalPercussion")}
-                      placeholder="Perkusi (+/-)"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Mobilitas Gigi
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalMobility")}
-                      placeholder="Mob 1, Mob 2, goyang fisiologis"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Pocket Depth
-                    </label>
-                    <input
-                      type="text"
-                      {...register("dentalPocketDepth")}
-                      placeholder="Mesial 3 mm, distal 5 mm"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-cyan-200 dark:border-cyan-700 rounded-lg focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="block text-[11px] font-black text-cyan-700 dark:text-cyan-300 uppercase tracking-widest">
-                      Odontogram
-                    </label>
-                    <span className="text-[10px] text-gray-400">
-                      Klik posisi gigi, lalu pilih status pada panel edit
-                    </span>
-                  </div>
-                  <OdontogramEditor teeth={odontogram} onChange={setOdontogram} />
-                </div>
-              </div>
-            )}
-
-            {/* CATEGORY SPECIFIC OBJECTIVE */}
-            {watchCategory === "Bumil" && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-green-100 dark:border-green-900/30">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    Tinggi Fundus (cm)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("tfu")}
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    DJJ (/mnt)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("djj")}
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    Posisi/Leopold
-                  </label>
-                  <input
-                    type="text"
-                    {...register("leopold")}
-                    placeholder="Kepala, Leopold I-IV"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-              </div>
-            )}
-
-            {watchCategory === "Umum" && (
-              <div className="grid grid-cols-2 gap-6 pt-6 border-t border-green-100 dark:border-green-900/30">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    Lingkar Kepala (cm)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("lingkarKepala")}
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    Lingkar Lengan (cm)
-                  </label>
-                  <input
-                    type="text"
-                    {...register("lingkarLengan")}
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-              </div>
-            )}
-
-            {watchCategory === "Lansia" && (
-              <div className="grid grid-cols-2 gap-6 pt-6 border-t border-green-100 dark:border-green-900/30">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    Skor ADL (Kemandirian)
-                  </label>
-                  <input
-                    type="number"
-                    {...register("adlScore")}
-                    placeholder="0-20"
-                    className="w-full px-4 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                    Status Kognitif
-                  </label>
-                  <input
-                    type="text"
-                    {...register("statusFungsional")}
-                    className="w-full px-4 py-2 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                  />
-                </div>
-              </div>
-            )}
-
-            {watchCategory === "Bumil" && watchIsPersalinan && (
-              <div className="pt-6 border-t border-gray-100 dark:border-gray-800 animate-in fade-in slide-in-from-top-2">
-                <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-3">
-                  Data Fisik Bayi Baru Lahir
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Jenis Kelamin
-                    </label>
-                    <select
-                      {...register("jenisKelamin")}
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    >
-                      <option value="">Pilih</option>
-                      <option value="Lk">Lak-laki</option>
-                      <option value="Pr">Perempuan</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      BBL (gram)
-                    </label>
-                    <input
-                      type="number"
-                      {...register("bbl")}
-                      placeholder="3000"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      PB (cm)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      {...register("pb")}
-                      placeholder="50"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      LIKA (cm)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      {...register("lika")}
-                      placeholder="33"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      Vit K
-                    </label>
-                    <input
-                      type="text"
-                      {...register("vitK")}
-                      placeholder="Diberikan"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">
-                      HB 0
-                    </label>
-                    <input
-                      type="text"
-                      {...register("hb0")}
-                      placeholder="Diberikan"
-                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border-2 border-purple-300 dark:border-purple-600 rounded-lg focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none text-gray-900 dark:text-white text-sm font-bold shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* A - ASSESSMENT */}
-        <div className="relative z-20 bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-visible">
-          <div className="bg-yellow-500 px-6 py-3">
-            <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              A - ASSESSMENT ({isDentalClinic ? "Diagnosa Odontologi" : "Diagnosa"})
-            </h3>
-          </div>
-          <div className={`p-6 grid grid-cols-1 gap-6 ${isDentalClinic ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
-            <div className={isDentalClinic ? "" : "md:col-span-2"}>
-              <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                {isDentalClinic ? "Diagnosa Gigi" : "Diagnosa Medis"} <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                {...register("diagnosa")}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:bg-white transition-all outline-none font-bold"
-                placeholder={isDentalClinic ? "Contoh: pulpitis irreversibel gigi 36" : "Nama penyakit / diagnosa..."}
-              />
-              {errors.diagnosa && (
-                <p className="mt-1 text-xs text-red-500">
-                  {errors.diagnosa.message}
-                </p>
-              )}
-            </div>
-            <div className="relative z-30">
-              <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                Kode ICD-10
-              </label>
-              <Icd10Autocomplete
-                items={icd10Items}
-                value={watchIcd10 || ""}
-                onChange={(value) =>
-                  setValue("icd10", value, { shouldDirty: true, shouldValidate: true })
-                }
-                onSelect={handleSelectIcd10}
-                placeholder={icd10Placeholder}
-              />
-              <p className="mt-2 text-[10px] text-gray-500">
-                Pencarian digabung dari WHO ICD-10 2019 dan ICD-10-CM 2026.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* P - PLAN */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border overflow-hidden">
-          <div className="bg-blue-500 px-6 py-3">
-            <h3 className="text-white font-black text-xs tracking-[0.2em] uppercase">
-              P - PLAN ({isDentalClinic ? "Tatalaksana, Resep, dan Kontrol" : "Terapi & Rencana Tindak Lanjut"})
-            </h3>
-          </div>
-          <div className="p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  {isDentalClinic ? "Tindakan Dental" : "Tindakan Medis"}
-                </label>
-                <textarea
-                  {...register("tindakan")}
-                  rows={2}
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={isDentalClinic ? "Scaling, tambal, ekstraksi, dressing, aplikasi fluoride." : "Heacting, Injeksi, dll..."}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  {isDentalClinic ? "Instruksi Pasca Tindakan / Edukasi" : "Edukasi / Saran"}
-                </label>
-                <textarea
-                  {...register("edukasi")}
-                  rows={2}
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={isDentalClinic ? "Instruksi sikat gigi, obat, diet lunak, kontrol ulang." : "Istirahat, kurangi gula, dll..."}
-                />
-              </div>
-            </div>
-
-            {/* Prescriptions (Medicines) */}
-            <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-2xl border border-purple-100 dark:border-purple-800">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-xs font-black text-purple-700 dark:text-purple-400 uppercase tracking-widest">
-                  {isDentalClinic ? "Resep Obat / Bahan" : "Resep Obat"}
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(true)}
-                  className="px-4 py-1.5 bg-purple-600 text-white text-[10px] font-black rounded-full hover:bg-purple-700 transition-all uppercase"
-                >
-                  Tambah Obat
-                </button>
-              </div>
-
-              {selectedMedicines.length === 0 ? (
-                <p className="text-[10px] text-gray-400 text-center py-4 uppercase font-bold tracking-widest italic">
-                  Belum ada resep ditambahkan
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {selectedMedicines.map((item) => (
-                    <div
-                      key={item.medicineId}
-                      className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-purple-200 dark:border-gray-700 space-y-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1">
-                          <p className="text-xs font-black text-gray-900 dark:text-white uppercase">
-                            {item.medicineName}
-                          </p>
-                          <p className="text-[10px] text-gray-500 font-bold">
-                            {item.quantity} {item.unit}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedMedicines((prev) =>
-                              prev.filter(
-                                (p) => p.medicineId !== item.medicineId,
-                              ),
-                            )
-                          }
-                          className="text-red-400 hover:text-red-600 transition-colors"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-5 w-5"
-                            viewBox="0 0 20 20"
-                            fill="currentColor"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest mb-2">
-                          Aturan Minum <span className="text-gray-400 normal-case">(opsional)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={item.aturanMinum || ""}
-                          onChange={(e) =>
-                            handleMedicineRuleChange(item.medicineId, e.target.value)
-                          }
-                          placeholder="Contoh: 3x1 sesudah makan"
-                          className="w-full px-3 py-2 bg-purple-50/70 dark:bg-gray-900 border border-purple-200 dark:border-gray-600 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm text-gray-900 dark:text-white"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-              <div>
-                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  {isDentalClinic ? "Rencana Kontrol / Rujukan" : "Rencana Tindak Lanjut"}
-                </label>
-                <input
-                  type="text"
-                  {...register("rencanaTindakLanjut")}
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={isDentalClinic ? "Kontrol 7 hari, evaluasi endo, rujuk SpKG, dll." : "Kontrol 3 hari lagi, Rujuk RS, dll..."}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
-                  Total Biaya Layanan (IDR)
-                </label>
-                <input type="hidden" {...register("biaya")} />
-                <input
-                  type="text"
-                  value={biayaDisplay}
-                  onChange={(e) => handleBiayaChange(e.target.value)}
-                  onBlur={(e) => setBiayaDisplay(formatBiayaDisplay(e.target.value))}
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold"
-                  placeholder="0"
-                  inputMode="numeric"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Submit Logic */}
-        <div className="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-dark-border">
+        {/* --- FORM FOOTER / SUBMIT --- */}
+        <div className="flex items-center justify-between pt-8 border-t border-gray-100 dark:border-gray-800">
           <button
             type="button"
             onClick={() => navigate("/pemeriksaan")}
@@ -1995,12 +972,14 @@ function ExaminationForm() {
         </div>
       </form>
 
+      {/* --- MODALS --- */}
       <MedicineSelectorModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         medicines={medicines}
         onSelect={handleAddMedicine}
       />
+
       <ExaminationDetailModal
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}

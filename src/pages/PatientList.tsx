@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Patient } from '../types';
@@ -8,6 +8,7 @@ import { id as localeId } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
+import { subscribeDataSync } from '../utils/dataSync';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -21,27 +22,46 @@ function PatientList() {
   const examinationUnitLabel = getExaminationUnitLabel(user?.clinicType);
   const examinationQueueLabel = getExaminationQueueLabel(user?.clinicType);
 
-  useEffect(() => {
-    setLoading(true);
-    if (!user) {
-        setLoading(false);
-        return;
+  const fetchPatients = useCallback(async (showLoading = false) => {
+    if (showLoading) {
+      setLoading(true);
     }
 
-    const fetchPatients = async () => {
-        try {
-            const data = await api.get('/patients');
-            setPatients(Array.isArray(data) ? data : []);
-        } catch (e) {
-            console.error("Error fetching patients: ", e);
-            toast.error("Gagal memuat data pasien");
-        } finally {
-            setLoading(false);
-        }
-    };
+    try {
+      const data = await api.get('/patients');
+      setPatients(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("Error fetching patients: ", e);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, []);
 
-    fetchPatients();
-  }, [user]);
+  // Initial fetch
+  useEffect(() => {
+    if (user) {
+      fetchPatients(true);
+    }
+  }, [user, fetchPatients]);
+
+  // Sync & Polling (Increased interval for higher stability)
+  useEffect(() => {
+    let isMounted = true;
+
+    const pollingInterval = setInterval(() => {
+      if (isMounted) fetchPatients();
+    }, 10000);
+
+    const unsubscribe = subscribeDataSync(['patients'], () => {
+      if (isMounted) fetchPatients();
+    });
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollingInterval);
+      unsubscribe();
+    };
+  }, [fetchPatients]);
 
   const handleDelete = async (patientId: string, patientName: string) => {
     if (window.confirm(`Apakah Anda yakin ingin menghapus data pasien ${patientName}?`)) {
@@ -59,11 +79,26 @@ function PatientList() {
   const handleAddToPoli = async (patientId: string, patientName: string) => {
     if (window.confirm(`Tambahkan ${patientName} ke ${examinationUnitLabel}?`)) {
       try {
+        const queuedAt = new Date().toISOString();
         await api.put(`/patients/${patientId}`, {
           poli: "Pemeriksaan",
-          updatedAt: new Date().toISOString()
+          updatedAt: queuedAt
         });
-        broadcastPatientQueueUpdate({ patientId, source: 'patient-list' });
+        const existingPatient = patients.find((patient) => patient.id === patientId);
+        if (existingPatient) {
+          broadcastPatientQueueUpdate({
+            action: 'enqueue',
+            patientId,
+            patient: {
+              ...existingPatient,
+              poli: 'Pemeriksaan',
+              updatedAt: queuedAt,
+            },
+            source: 'patient-list',
+          });
+        } else {
+          broadcastPatientQueueUpdate({ action: 'refresh', patientId, source: 'patient-list' });
+        }
 
         // Kirim Notifikasi ke Pemeriksa
         try {
@@ -106,7 +141,7 @@ function PatientList() {
   const totalPages = Math.ceil(filteredPatients.length / ITEMS_PER_PAGE);
 
   return (
-    <div className="space-y-6 pb-20">
+    <div key="patient-list-container" className="space-y-6 pb-20 font-sans">
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-primary-50 to-white dark:from-dark-surface dark:to-dark-bg p-6 rounded-2xl border border-primary-100 dark:border-dark-border transition-colors">
         <div>
@@ -158,11 +193,12 @@ function PatientList() {
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-800/50">
                   <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pasien</th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">No. RM</th>
+                  <th scope="col" className="hidden sm:table-cell px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">No. RM</th>
+                  <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Status</th>
                   <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Detail</th>
-                  <th scope="col" className="hidden md:table-cell px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
-                  <th scope="col" className="relative px-6 py-4">
-                    <span className="sr-only">Actions</span>
+                  <th scope="col" className="hidden lg:table-cell px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alamat</th>
+                  <th scope="col" className="px-6 py-4 sticky-action-col text-center">
+                    <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aksi</span>
                   </th>
                 </tr>
               </thead>
@@ -194,7 +230,7 @@ function PatientList() {
                             {patient.name.charAt(0).toUpperCase()}
                           </div>
                           <div className="ml-4">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                               <span className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-primary-700 dark:group-hover:text-primary-400 transition-colors">
                                 {patient.name}
                               </span>
@@ -212,21 +248,36 @@ function PatientList() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="hidden sm:table-cell px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 font-mono">
                           {patient.rm}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
+                             <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                                patient.poli === 'Pemeriksaan' 
+                                  ? 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-900/30 animate-pulse' 
+                                  : patient.poli === 'Selesai'
+                                  ? 'bg-green-50 text-green-600 border-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-900/30'
+                                  : 'bg-primary-50 text-primary-600 border-primary-100 dark:bg-primary-900/10 dark:text-primary-400 dark:border-primary-900/20'
+                             }`}>
+                               {patient.poli === 'Pemeriksaan' 
+                                  ? examinationQueueLabel 
+                                  : patient.poli === 'Selesai' 
+                                  ? 'Sudah Diperiksa' 
+                                  : patient.poli}
+                             </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-200 font-medium">{patient.ageDisplay}</div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">{patient.gender}</div>
                       </td>
-                      <td className="hidden md:table-cell px-6 py-4">
+                      <td className="hidden lg:table-cell px-6 py-4">
                         <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title={patient.address}>
                           {patient.address}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky-action-col">
                         <button
                           className="p-2 rounded-full text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-gray-800 transition-all mr-2"
                           onClick={(e) => {
