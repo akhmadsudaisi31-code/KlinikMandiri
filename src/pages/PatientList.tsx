@@ -3,12 +3,11 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Patient } from '../types';
 import { Link, useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
-import { id as localeId } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 import { subscribeDataSync } from '../utils/dataSync';
+import { formatToWIB } from '../utils/date';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -242,9 +241,9 @@ function PatientList() {
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              Terdaftar: {patient.createdAt ? format(new Date(patient.createdAt), 'dd MMM yyyy', { locale: localeId }) : '-'}
-                            </div>
+                            <span className="text-[10px] font-black bg-gray-50 dark:bg-gray-800 text-gray-500 px-3 py-1 rounded-full uppercase tracking-widest">
+                              Terdaftar: {formatToWIB(patient.createdAt)}
+                            </span>
                           </div>
                         </div>
                       </td>

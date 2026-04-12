@@ -95,7 +95,7 @@ function ActivationPending() {
                 </div>
                 <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500 dark:text-gray-400 font-bold text-xs font-mono">Atas Nama</span>
-                    <span className="text-gray-900 dark:text-white font-black uppercase tracking-tight">AKHMAD SUDAISI</span>
+                    <span className="text-gray-900 dark:text-white font-black uppercase tracking-tight">ADMIN KLINIK MANDIRI</span>
                 </div>
             </div>
 

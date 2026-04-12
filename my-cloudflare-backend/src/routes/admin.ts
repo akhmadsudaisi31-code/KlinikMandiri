@@ -93,9 +93,18 @@ admin.get('/clinics', async (c) => {
 admin.put('/clinics/:id', async (c) => {
     const id = c.req.param('id')
     const body = await c.req.json()
-    const validUntilQuery = `validUntil = ${getValidUntilQuery(body.subscriptionPlan)}`
-    await c.env.DB.prepare(`UPDATE clinics SET name = ?, email = ?, phone = ?, subscriptionPlan = ?, ${validUntilQuery} WHERE id = ?`)
-    .bind(body.name, body.email, body.phone, body.subscriptionPlan, id).run()
+    
+    // If validUntil is explicitly provided (manual edit), use it
+    if (body.validUntil) {
+        await c.env.DB.prepare('UPDATE clinics SET name = ?, email = ?, phone = ?, subscriptionPlan = ?, validUntil = ? WHERE id = ?')
+        .bind(body.name, body.email, body.phone, body.subscriptionPlan, body.validUntil, id).run()
+    } else {
+        // Fallback to automatic plan-based calculation if not provided
+        const validUntilQuery = `validUntil = ${getValidUntilQuery(body.subscriptionPlan)}`
+        await c.env.DB.prepare(`UPDATE clinics SET name = ?, email = ?, phone = ?, subscriptionPlan = ?, ${validUntilQuery} WHERE id = ?`)
+        .bind(body.name, body.email, body.phone, body.subscriptionPlan, id).run()
+    }
+    
     return c.json({ success: true })
 })
 

@@ -128,19 +128,34 @@ function Login() {
                 {isSubmitting ? 'Memproses...' : 'Masuk Aplikasi'}
               </button>
             </div>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200 dark:border-gray-800"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white dark:bg-dark-surface px-2 text-gray-400 font-bold">Atau</span>
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => navigate('/demo')}
+                className="w-full flex justify-center py-2.5 px-4 border-2 border-primary-100 dark:border-primary-900/30 rounded-md shadow-sm text-sm font-bold text-primary-600 dark:text-primary-400 bg-primary-50 hover:bg-primary-100 dark:bg-primary-900/10 focus:outline-none transition-all gap-2 items-center"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699-7.38c.596.596 1.011 1.341 1.189 2.162" />
+                </svg>
+                Coba Akun Demo
+              </button>
+            </div>
           </form>
 
           <div className="mt-6 text-center text-sm">
              <span className="text-gray-600 dark:text-gray-400">Belum punya akun klinik? </span>
              <Link to="/register" className="font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400">
                 Daftar di sini
-             </Link>
-          </div>
-
-          <div className="mt-4 text-center text-sm">
-             <span className="text-gray-600 dark:text-gray-400">Ingin mencoba aplikasinya dulu? </span>
-             <Link to="/demo" className="font-medium text-cyan-600 hover:text-cyan-500 dark:text-cyan-400">
-                Masuk ke akun demo
              </Link>
           </div>
         </div>

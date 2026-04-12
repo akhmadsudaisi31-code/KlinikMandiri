@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS icd_codes (
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_patients_clinicId ON patients(clinicId);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_rm_clinic ON patients(clinicId, rm) WHERE rm != "-";
+CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_name_dob ON patients(clinicId, name, dob) WHERE dob IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_medicines_clinicId ON medicines(clinicId);
 CREATE INDEX IF NOT EXISTS idx_examinations_clinicId ON examinations(clinicId);
 CREATE INDEX IF NOT EXISTS idx_examinations_patientId ON examinations(patientId);

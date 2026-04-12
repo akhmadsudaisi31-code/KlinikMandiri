@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { ClinicSettings } from '../types';
 import toast from 'react-hot-toast';
+import { getDoctorLabel } from '../utils/clinic';
 
 const DEFAULT_TEMPLATE = `Dengan ini menerangkan bahwa:
 Nama: {{name}}
@@ -135,13 +136,13 @@ const Settings: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 whitespace-nowrap">Nama Dokter</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 whitespace-nowrap">Nama {getDoctorLabel(user?.clinicType)}</label>
                             <input
                                 type="text"
                                 className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 dark:text-white font-bold"
                                 value={settings.doctorName}
                                 onChange={e => setSettings({ ...settings, doctorName: e.target.value })}
-                                placeholder="Contoh: dr. Ahmad Sudaisi"
+                                placeholder={`Contoh: ${user?.clinicType === 'Bidan' ? 'Bdn. [Nama]' : user?.clinicType === 'Perawat' ? 'Ns. [Nama]' : 'dr. [Nama]'}`}
                             />
                         </div>
                         <div>

@@ -3,10 +3,11 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
+import { format, addMonths, addYears } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import { SUBSCRIPTION_PLANS } from '../types';
 import { subscribeDataSync } from '../utils/dataSync';
+import { formatToWIB } from '../utils/date';
 
 interface ClinicEntry {
     id: string;
@@ -42,7 +43,7 @@ function AdminDashboard() {
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingClinic, setEditingClinic] = useState<ClinicEntry | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', subscriptionPlan: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', subscriptionPlan: '', validUntil: '' });
 
   // Activity Modal State
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
@@ -133,7 +134,8 @@ function AdminDashboard() {
       name: clinic.name,
       email: clinic.email,
       phone: clinic.phone || '',
-      subscriptionPlan: clinic.subscriptionPlan || 'YEARLY'
+      subscriptionPlan: clinic.subscriptionPlan || 'YEARLY',
+      validUntil: clinic.validUntil ? clinic.validUntil.split('T')[0] : ''
     });
     setIsEditModalOpen(true);
   };
@@ -346,7 +348,7 @@ function AdminDashboard() {
                     <td className="px-6 py-4">
                          <p className="text-xs font-black text-gray-700 dark:text-gray-300">{clinic.phone}</p>
                          <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                             {format(new Date(clinic.createdAt), 'dd MMM yyyy HH:mm', { locale: localeId })}
+                             {formatToWIB(clinic.createdAt)}
                          </p>
                     </td>
                     <td className="px-6 py-4">
@@ -429,7 +431,7 @@ function AdminDashboard() {
                             Aktif sampai: {formatValidUntil(clinic.validUntil)}
                         </span>
                         <span className="text-[10px] font-black bg-gray-50 dark:bg-gray-800 text-gray-500 px-3 py-1 rounded-full uppercase tracking-widest">
-                            Terdaftar: {format(new Date(clinic.createdAt), 'dd MMM yyyy', { locale: localeId })}
+                            Terdaftar: {formatToWIB(clinic.createdAt)}
                         </span>
                     </div>
 
@@ -506,6 +508,34 @@ function AdminDashboard() {
                   )}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Masa Aktif (Hingga Tanggal)</label>
+                <div className="flex gap-2">
+                    <input 
+                      type="date" 
+                      value={editForm.validUntil} 
+                      onChange={e => setEditForm({...editForm, validUntil: e.target.value})} 
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => {
+                            let newDate = new Date();
+                            if (editForm.subscriptionPlan === 'MONTHLY') newDate = addMonths(newDate, 1);
+                            else if (editForm.subscriptionPlan === '2YEARS') newDate = addYears(newDate, 2);
+                            else if (editForm.subscriptionPlan === 'LIFETIME') newDate = addYears(newDate, 100);
+                            else newDate = addYears(newDate, 1); // Default for YEARLY
+
+                            setEditForm({ ...editForm, validUntil: format(newDate, 'yyyy-MM-dd') });
+                            toast.success(`Masa aktif diperbarui sesuai paket ${editForm.subscriptionPlan}`);
+                        }}
+                        className="px-3 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-xs hover:bg-blue-100 transition-colors"
+                    >
+                        RESET DARI HARI INI
+                    </button>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1 italic leading-tight">Ubah paket di atas lalu klik "RESET DARI HARI INI" untuk otomatis memperbarui tanggal, atau atur secara manual.</p>
+              </div>
             </div>
             
             <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
@@ -571,7 +601,7 @@ function AdminDashboard() {
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 Terakhir Login: <strong className="ml-2 text-gray-900 dark:text-white">
-                                    {activityStats.lastLoginAt ? format(new Date(activityStats.lastLoginAt), 'dd MMM yyyy HH:mm', { locale: localeId }) : 'Belum pernah login'}
+                                    {activityStats.lastLoginAt ? formatToWIB(activityStats.lastLoginAt) : 'Belum pernah login'}
                                 </strong>
                             </p>
                         </div>

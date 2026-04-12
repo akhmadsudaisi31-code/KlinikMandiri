@@ -232,6 +232,25 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                             )
                                                         ))}
                                                     </div>
+
+                                                    {/* Lab Results */}
+                                                    {(ext.gds || ext.asamUrat || ext.kolesterol || ext.hb) && (
+                                                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/30">
+                                                            {[
+                                                                { label: 'Gula Darah', val: ext.gds, unit: 'mg/dL' },
+                                                                { label: 'Asam Urat', val: ext.asamUrat, unit: 'mg/dL' },
+                                                                { label: 'Kolesterol', val: ext.kolesterol, unit: 'mg/dL' },
+                                                                { label: 'HB', val: ext.hb, unit: 'g/dL' },
+                                                            ].map((v, i) => (
+                                                                v.val && (
+                                                                    <div key={i}>
+                                                                        <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-1 tracking-widest">{v.label}</p>
+                                                                        <p className="font-black text-gray-900 dark:text-white text-sm">{v.val} <span className="text-[10px] opacity-40 font-bold">{v.unit}</span></p>
+                                                                    </div>
+                                                                )
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                     {data.pemeriksaanFisik && (
                                                         <div>
                                                             <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">{isDentalExam ? 'Temuan Klinis Ringkas' : 'Pemeriksaan Fisik'}</p>

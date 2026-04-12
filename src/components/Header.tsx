@@ -446,7 +446,7 @@ function Header() {
               </div>
               <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
                 {isDentalClinic
-                  ? 'Akun ini seharusnya memakai tema hijau mint dan form pelayanan gigi khusus.'
+                  ? 'Akun ini memakai tema khusus dan form pelayanan gigi (odontogram).'
                   : 'Akun ini memakai alur klinik standar sesuai jenis praktik yang tersimpan.'}
               </p>
             </div>

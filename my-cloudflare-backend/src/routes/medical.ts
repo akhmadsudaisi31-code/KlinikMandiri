@@ -18,9 +18,20 @@ const getPatientDeleteStatements = (db: D1Database, patientId: string, clinicId:
 // --- PATIENTS ---
 medical.get('/patients', async (c) => {
   const clinicId = getClinicId(c)
-  const { results } = await c.env.DB.prepare(
-    'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, poli, allergies, createdAt, updatedAt FROM patients WHERE clinicId = ? ORDER BY createdAt DESC LIMIT 1000'
-  ).bind(clinicId).all()
+  const startDate = c.req.query('startDate')
+  const endDate = c.req.query('endDate')
+
+  let query = 'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, poli, allergies, createdAt, updatedAt FROM patients WHERE clinicId = ?'
+  const params: any[] = [clinicId]
+
+  if (startDate && endDate) {
+    query += ' AND createdAt >= ? AND createdAt <= ?'
+    params.push(startDate, endDate)
+  }
+
+  query += ' ORDER BY createdAt DESC LIMIT 1000'
+  
+  const { results } = await c.env.DB.prepare(query).bind(...params).all()
   return c.json(results)
 })
 
@@ -47,8 +58,28 @@ medical.get('/patients/:id', async (c) => {
 medical.post('/patients', async (c) => {
   const clinicId = getClinicId(c)
   const body = await c.req.json()
+
+  // --- CEK UNIK RM (Kecuali '-') ---
+  if (body.rm && body.rm !== '-') {
+    const existing: any = await c.env.DB.prepare(
+      'SELECT id FROM patients WHERE clinicId = ? AND rm = ?'
+    ).bind(clinicId, body.rm).first()
+    
+    if (existing) {
+      return c.json({ error: `Nomor RM ${body.rm} sudah terdaftar di klinik ini.` }, 400)
+    }
+  } else if (body.name && body.dob) {
+    // --- CEK UNIK NAMA + DOB (Untuk Tanpa RM) ---
+    const existing: any = await c.env.DB.prepare(
+      'SELECT id FROM patients WHERE clinicId = ? AND name = ? AND dob = ?'
+    ).bind(clinicId, body.name, body.dob).first()
+
+    if (existing) {
+      return c.json({ error: `Pasien dengan nama ${body.name} dan tanggal lahir ${body.dob} sudah terdaftar.` }, 400)
+    }
+  }
+
   const id = crypto.randomUUID()
-  
   const now = new Date().toISOString()
   await c.env.DB.prepare(
     `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, poli, allergies, createdBy, updatedAt) 
@@ -232,6 +263,22 @@ medical.put('/examinations/:id', async (c) => {
 medical.post('/examinations', async (c) => {
   const clinicId = getClinicId(c)
   const body = await c.req.json()
+
+  // --- CEK IDEMPOTENCY (Pemeriksaan Ganda dalam waktu dekat) ---
+  // Jika pasien sudah diperiksa dalam 1 jam terakhir dengan diagnosa yang sama, cegah duplikasi tidak sengaja.
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const duplicate: any = await c.env.DB.prepare(
+    'SELECT id FROM examinations WHERE clinicId = ? AND patientId = ? AND createdAt > ? LIMIT 1'
+  ).bind(clinicId, body.patientId, oneHourAgo).first()
+
+  if (duplicate && !body.forceSave) {
+    return c.json({ 
+      error: 'Pasien ini baru saja diperiksa dalam 1 jam terakhir.',
+      code: 'DUPLICATE_EXAMINATION',
+      existingId: duplicate.id 
+    }, 409)
+  }
+
   const id = crypto.randomUUID()
   
   const patient: any = await c.env.DB.prepare('SELECT id FROM patients WHERE id = ? AND clinicId = ?').bind(body.patientId, clinicId).first()

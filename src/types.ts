@@ -1,5 +1,5 @@
 export const GENDERS = ["Laki-laki", "Perempuan"] as const;
-export const CLINIC_TYPES = ["Bidan", "Perawat", "Dokter", "Dokter Gigi"] as const;
+export const CLINIC_TYPES = ["Bidan", "Perawat", "Dokter", "Dokter Gigi", "Terapis Gigi"] as const;
 export const CATEGORIES = [
   "Tuan",
   "Nyonya",
@@ -178,6 +178,13 @@ export interface PersalinanData {
   hb0: string;
 }
 
+export interface LabData {
+  gds?: string;
+  asamUrat?: string;
+  kolesterol?: string;
+  hb?: string;
+}
+
 export interface PatientFormData {
   name: string;
   namaSuami?: string;
@@ -234,6 +241,7 @@ export const SUBSCRIPTION_PLANS = [
     id: "MONTHLY",
     name: "Paket 1 Bulan",
     price: 50000,
+    priceDoctor: 75000,
     duration: "per bulan",
     features: ALL_FEATURES,
   },
@@ -241,6 +249,7 @@ export const SUBSCRIPTION_PLANS = [
     id: "YEARLY",
     name: "Paket 1 Tahun",
     price: 600000,
+    priceDoctor: 850000,
     duration: "per tahun",
     features: ALL_FEATURES,
   },
@@ -248,14 +257,23 @@ export const SUBSCRIPTION_PLANS = [
     id: "2YEARS",
     name: "Paket 2 Tahun",
     price: 1150000,
+    priceDoctor: 1600000,
     duration: "per 2 tahun",
     features: ALL_FEATURES,
   },
   {
     id: "LIFETIME",
     name: "Paket Selamanya",
-    price: 3500000, // Harga promo contoh untuk lifetime
+    price: 3500000,
+    priceDoctor: 5000000,
     duration: "selamanya",
     features: ALL_FEATURES,
   },
 ];
+
+export const getPlanPrice = (planId: string, clinicType: ClinicType | string) => {
+  const plan = SUBSCRIPTION_PLANS.find(p => p.id === planId);
+  if (!plan) return 0;
+  const isDoctor = clinicType === 'Dokter' || clinicType === 'Dokter Gigi';
+  return isDoctor ? plan.priceDoctor : plan.price;
+};

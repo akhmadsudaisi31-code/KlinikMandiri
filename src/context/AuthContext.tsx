@@ -69,7 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sync theme with user.clinicType
   useEffect(() => {
-    document.body.classList.remove('theme-bidan', 'theme-perawat', 'theme-dokter', 'theme-dokter-gigi');
+    const themeClasses = ['theme-bidan', 'theme-perawat', 'theme-dokter', 'theme-dokter-gigi', 'theme-terapis-gigi'];
+    document.body.classList.remove(...themeClasses);
     document.body.classList.add(getClinicThemeClass(user?.clinicType));
   }, [user]);
 

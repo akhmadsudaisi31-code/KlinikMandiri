@@ -12,7 +12,7 @@ async function seed() {
 ('demo-dokter-gigi-clinic', 'Demo Dokter Gigi', 'demo.drg@klinikmandiri.app', '${hash}', 'active', 0, 'Dokter');`);
     
     console.log(`INSERT INTO clinics (id, name, email, password, status, isAdmin) VALUES 
-('admin-1', 'System Admin', 'sudaisi74@gmail.com', '${hash}', 'active', 1);`);
+('admin-1', 'System Admin', 'admin@klinikmandiri.app', '${hash}', 'active', 1);`);
 }
 
 seed();

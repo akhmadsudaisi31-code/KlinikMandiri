@@ -3,7 +3,7 @@ import { useForm, SubmitHandler } from 'react-hook-form';
 import { api } from '../api';
 import { useNavigate, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { CLINIC_TYPES, ClinicType, SUBSCRIPTION_PLANS } from '../types';
+import { CLINIC_TYPES, ClinicType, SUBSCRIPTION_PLANS, getPlanPrice } from '../types';
 import toast from 'react-hot-toast';
 import { getClinicThemeClass } from '../utils/clinic';
 
@@ -170,8 +170,8 @@ function Register() {
                   >
                     <input type="radio" value={plan.id} {...register('subscriptionPlan')} className="sr-only" />
                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{plan.name}</span>
-                    <span className="text-sm font-black text-gray-900 dark:text-white tracking-tighter">Rp {plan.price.toLocaleString('id-ID')}</span>
-                    <span className="text-[10px] text-gray-400 font-bold">{(plan as any).duration}</span>
+                    <span className="text-sm font-black text-gray-900 dark:text-white tracking-tighter">Rp {getPlanPrice(plan.id, selectedType).toLocaleString('id-ID')}</span>
+                    <span className="text-[10px] text-gray-400 font-bold">{plan.duration}</span>
                     {selectedPlan === plan.id && (
                         <div className="absolute top-2 right-2 transition-colors duration-300 text-primary-600">
                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">

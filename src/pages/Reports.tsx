@@ -21,6 +21,7 @@ import {
 } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
 import { subscribeDataSync, SyncResource } from '../utils/dataSync';
+import { formatWibSafe } from '../utils/date';
 
 ChartJS.register(
   CategoryScale,
@@ -187,7 +188,8 @@ function Reports() {
     if (dataSource === 'anc') {
       exportData = currentData.map((d: any, index: number) => ({
         'NO': index + 1,
-        'NAMA BUMIL': d.patientName || '-',
+        'PASIEN': d.patientName || '-',
+        'ANAMNESA': d.keluhanUtama || '-',
         'NAMA SUAMI': d.namaSuami || '-',
         'UMUR': d.ageDisplay || '-',
         'ALAMAT': d.address || '-',
@@ -196,20 +198,22 @@ function Reports() {
         'ANAK TERKECIL': d.anakTerkecil || '-',
         'HPHT': d.hpht || '-',
         'HPL': d.hpl || '-',
-        'TANGGAL KUNJUNGAN K1': d.kunjunganAnc === 'K1' ? (d.date ? format(new Date(d.date), 'dd/MM/yyyy') : '-') : '-',
-        'TANGGAL KUNJUNGAN K4': d.kunjunganAnc === 'K4' ? (d.date ? format(new Date(d.date), 'dd/MM/yyyy') : '-') : '-',
+        'TANGGAL KUNJUNGAN K1': d.kunjunganAnc === 'K1' ? (d.createdAt ? format(new Date(d.createdAt), 'dd/MM/yyyy') : '-') : '-',
+        'TANGGAL KUNJUNGAN K4': d.kunjunganAnc === 'K4' ? (d.createdAt ? format(new Date(d.createdAt), 'dd/MM/yyyy') : '-') : '-',
         'TB': d.tb || '-',
         'BB': d.bb || '-',
         'TD': d.tensi || '-',
         'STATUS TT': d.statusTT || '-',
         'LILA': d.lila || '-',
         'SKOR': d.skor || '-',
-        'USG': d.usg || '-'
+        'USG': d.usg || '-',
+        'BIAYA': d.cost ? Number(d.cost) : 0
       }));
     } else if (dataSource === 'persalinan') {
       exportData = currentData.map((d: any, index: number) => ({
          'NO': index + 1,
-         'NAMA BULIN': d.patientName || '-',
+         'PASIEN': d.patientName || '-',
+         'ANAMNESA': d.keluhanUtama || '-',
          'NAMA SUAMI': d.namaSuami || '-',
          'UMUR': d.ageDisplay || '-',
          'ALAMAT': d.address || '-',
@@ -226,18 +230,26 @@ function Reports() {
          'PB': d.pb || '-',
          'LIKA': d.lika || '-',
          'VIT K': d.vitK || '-',
-         'HB 0': d.hb0 || '-'
+         'HB 0': d.hb0 || '-',
+         'BIAYA': d.cost ? Number(d.cost) : 0
       }));
     } else {
-       // Regular Export for others
-       exportData = currentData.map((d: any) => {
+       // Regular Export for others (Examinations / Pendaftaran)
+       exportData = currentData.map((d: any, index: number) => {
+         const therapy = d.medicines && d.medicines.length > 0
+           ? d.medicines.map((m: any) => m.medicineName).join(', ')
+           : (d.therapy || d.tindakan || '-');
+
          const out: any = { 
-            'ID': d.id || '-',
-            'Waktu': d.createdAt ? format(new Date(d.createdAt), 'dd/MM/yyyy HH:mm') : '-',
+            'NO': index + 1,
+            'WAKTU': d.createdAt ? format(new Date(d.createdAt), 'dd/MM/yyyy HH:mm', { locale: localeId }) : '-',
+            'NO. RM': d.patientRm || d.rm || '-',
+            'PASIEN': d.patientName || d.name || '-',
+            'ANAMNESA': d.keluhanUtama || '-',
+            'DIAGNOSA': d.diagnosa || d.diagnosis || '-',
+            'TERAPI': therapy,
+            'BIAYA': d.cost ? Number(d.cost) : 0
          };
-         if (d.patientRm || d.rm) out['No. RM'] = d.patientRm || d.rm;
-         if (d.name || d.patientName) out['Nama'] = d.name || d.patientName;
-         if (d.diagnosa || d.diagnosis) out['Diagnosa'] = d.diagnosa || d.diagnosis;
          
          return out;
        });
@@ -261,12 +273,19 @@ function Reports() {
     });
 
     const sortedDiagnoses = Object.entries(diagnosisCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5); // Top 5
+      .sort(([, a], [, b]) => b - a);
 
-    // Calculate others if need be, but for simplicity let's just show top 5
-    const diagLabels = sortedDiagnoses.map(([k]) => k);
-    const diagValues = sortedDiagnoses.map(([, v]) => v);
+    const top5 = sortedDiagnoses.slice(0, 5);
+    const others = sortedDiagnoses.slice(5);
+    const otherCount = others.reduce((acc, [, v]) => acc + v, 0);
+
+    const diagLabels = top5.map(([k]) => k);
+    const diagValues = top5.map(([, v]) => v);
+
+    if (otherCount > 0) {
+      diagLabels.push('Lainnya');
+      diagValues.push(otherCount);
+    }
 
     const diagnosisChart = {
       labels: diagLabels,
@@ -280,6 +299,7 @@ function Reports() {
             'rgba(255, 206, 86, 0.7)',
             'rgba(75, 192, 192, 0.7)',
             'rgba(153, 102, 255, 0.7)',
+            'rgba(201, 203, 207, 0.7)', // Grey for 'Others'
           ],
           borderColor: [
             'rgba(255, 99, 132, 1)',
@@ -287,6 +307,7 @@ function Reports() {
             'rgba(255, 206, 86, 1)',
             'rgba(75, 192, 192, 1)',
             'rgba(153, 102, 255, 1)',
+            'rgba(201, 203, 207, 1)',
           ],
           borderWidth: 1,
         },
@@ -323,17 +344,15 @@ function Reports() {
       });
       trendValues = monthCounts;
     } else {
-      // Daily: Group by Hour?
-      trendLabels = ['00', '03', '06', '09', '12', '15', '18', '21']; // Simplified buckets
-      const hourCounts = new Array(8).fill(0);
+      // Daily: Group by Hour (0-23)
+      trendLabels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
+      const hourCounts = new Array(24).fill(0);
       examinations.forEach(v => {
         const d = v.createdAt ? new Date(v.createdAt) : new Date();
         const h = getHours(d);
-        const bucket = Math.floor(h / 3);
-        if (bucket < 8) hourCounts[bucket]++;
+        if (h < 24) hourCounts[h]++;
       });
       trendValues = hourCounts;
-      trendLabels = trendLabels.map(h => `${h}:00`);
     }
 
     const trendChart = {
@@ -572,7 +591,7 @@ function Reports() {
                     currentTableData.map((examination: any) => (
                       <tr key={examination.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {examination.createdAt ? format(new Date(examination.createdAt), 'dd/MM/yyyy HH:mm', { locale: localeId }) : '-'}
+                          {formatWibSafe(examination.createdAt)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded font-mono text-xs border border-gray-200 dark:border-gray-600">{examination.patientRm}</span>

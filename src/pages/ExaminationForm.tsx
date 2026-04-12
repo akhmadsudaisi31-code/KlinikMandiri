@@ -17,6 +17,7 @@ import { getExamPageTitle, isDentalClinicType } from "../utils/clinic";
 import { SoapSection } from "../components/ExaminationForm/SoapSection";
 import { SpecialtySection } from "../components/ExaminationForm/SpecialtySection";
 import { MedicineSection } from "../components/ExaminationForm/MedicineSection";
+import { LabSection } from "../components/ExaminationForm/LabSection";
 import { broadcastPatientQueueUpdate } from "../utils/patientQueueSync";
 
 const schema = z.object({
@@ -108,6 +109,12 @@ const schema = z.object({
   dentalMobility: z.string().optional(),
   dentalPocketDepth: z.string().optional(),
   dentalBleedingOnProbing: z.string().optional(),
+
+  // Lab Data
+  gds: z.string().optional(),
+  asamUrat: z.string().optional(),
+  kolesterol: z.string().optional(),
+  hb: z.string().optional(),
 });
 
 type ExaminationFormData = z.infer<typeof schema>;
@@ -237,8 +244,14 @@ function ExaminationForm() {
 
       // Persalinan Optional Toggle
       isPersalinan: false,
+
+      // Lab Data
+      gds: "",
+      asamUrat: "",
+      kolesterol: "",
+      hb: "",
     },
-  });
+});
 
   const availableCategories = useMemo(() => {
     if (!settings) return EXAM_CATEGORIES;
@@ -566,6 +579,13 @@ function ExaminationForm() {
     setValue("dentalMobility", ext.dentalMobility || "");
     setValue("dentalPocketDepth", ext.dentalPocketDepth || "");
     setValue("dentalBleedingOnProbing", ext.dentalBleedingOnProbing || "");
+
+    // Lab Data
+    setValue("gds", ext.gds || "");
+    setValue("asamUrat", ext.asamUrat || "");
+    setValue("kolesterol", ext.kolesterol || "");
+    setValue("hb", ext.hb || "");
+
     setOdontogram(normalizeOdontogram(ext.odontogram));
     const biayaRaw = exam.biaya ? String(exam.biaya) : "";
     setValue("biaya", biayaRaw);
@@ -673,6 +693,12 @@ function ExaminationForm() {
           dentalPocketDepth: data.dentalPocketDepth,
           dentalBleedingOnProbing: data.dentalBleedingOnProbing,
           odontogram,
+
+          // Lab Data
+          gds: data.gds,
+          asamUrat: data.asamUrat,
+          kolesterol: data.kolesterol,
+          hb: data.hb,
         }),
         updatedAt: now,
         updatedBy: user.uid,
@@ -933,6 +959,10 @@ function ExaminationForm() {
           isDentalClinic={isDentalClinic}
           odontogram={odontogram}
           setOdontogram={setOdontogram}
+        />
+
+        <LabSection
+          register={register}
         />
 
         <SpecialtySection
