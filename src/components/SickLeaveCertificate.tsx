@@ -15,6 +15,16 @@ interface SickLeaveCertificateProps {
     ticketNumber?: string;
 }
 
+const DEFAULT_TEMPLATE = `Dengan ini menerangkan bahwa:
+Nama: {{name}}
+Umur: {{ageIndo}}
+Pekerjaan: {{occupation}}
+Alamat: {{address}}
+
+Berdasarkan hasil pemeriksaan yang telah dilakukan, pasien tersebut dalam kondisi SAKIT, sehingga memerlukan istirahat selama {{days}} hari, terhitung mulai tanggal {{startDate}} sampai dengan {{endDate}}.
+
+Demikian surat keterangan ini dibuat untuk dapat dipergunakan sebagaimana mestinya.`;
+
 const SickLeaveCertificate: React.FC<SickLeaveCertificateProps> = ({
     patient,
     settings,
@@ -91,15 +101,16 @@ const SickLeaveCertificate: React.FC<SickLeaveCertificateProps> = ({
     }, [printSize]);
 
     // Replace placeholders in template
-    const content = settings.sickLeaveTemplate
-        .replace('{{name}}', patient.name || '................................')
-        .replace('{{ageIndo}}', patient.ageDisplay || '-')
-        .replace('{{address}}', patient.address || 'Alamat tidak diinput')
-        .replace('{{occupation}}', occupation || '-')
-        .replace('{{days}}', days.toString())
-        .replace('{{startDate}}', format(new Date(startDate), 'dd MMMM yyyy', { locale: localeId }))
-        .replace('{{endDate}}', format(new Date(endDate), 'dd MMMM yyyy', { locale: localeId }))
-        .replace('{{diagnosis}}', diagnosis || '-');
+    const template = settings.sickLeaveTemplate || DEFAULT_TEMPLATE;
+    const content = template
+        .replace(/{{name}}/g, patient.name || '................................')
+        .replace(/{{ageIndo}}/g, patient.ageDisplay || '-')
+        .replace(/{{address}}/g, patient.address || 'Alamat tidak diinput')
+        .replace(/{{occupation}}/g, occupation || '-')
+        .replace(/{{days}}/g, days.toString())
+        .replace(/{{startDate}}/g, format(new Date(startDate), 'dd MMMM yyyy', { locale: localeId }))
+        .replace(/{{endDate}}/g, format(new Date(endDate), 'dd MMMM yyyy', { locale: localeId }))
+        .replace(/{{diagnosis}}/g, diagnosis || '-');
 
     const sizeStyles = printSize === 'A4' 
         ? { width: '210mm', height: '297mm' } 

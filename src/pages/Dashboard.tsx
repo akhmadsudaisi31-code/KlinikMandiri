@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { subscribeDataSync } from '../utils/dataSync';
+import { AdvancedStatsSection } from '../components/AdvancedStatsSection';
 
 function Dashboard() {
     const [totalPatients, setTotalPatients] = useState<number>(0);
@@ -10,18 +11,23 @@ function Dashboard() {
     const [medicineStock, setMedicineStock] = useState<number>(0);
 
     const { user } = useAuth();
+    const [announcement, setAnnouncement] = useState<string | null>(null);
 
     const fetchStats = useCallback(async () => {
         try {
-            const [patients, exams, medicines] = await Promise.all([
+            const [patients, exams, medicines, announce] = await Promise.all([
                 api.get('/patients'),
                 api.get('/examinations/today'),
-                api.get('/medicines')
+                api.get('/medicines'),
+                api.get('/broadcast').catch(() => null)
             ]);
             
             setTotalPatients(patients?.length || 0);
             setTodayExaminations(exams?.length || 0);
             setMedicineStock(medicines?.length || 0);
+            if (announce && announce.message) {
+                setAnnouncement(announce.message);
+            }
         } catch (e) {
             console.error("Gagal mengambil data dashboard", e);
         }
@@ -55,6 +61,22 @@ function Dashboard() {
 
     return (
         <div key="dashboard-container" className="space-y-6 pb-20 font-sans">
+            {/* Announcement Banner */}
+            {announcement && (
+                <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-4 rounded-2xl text-white shadow-lg shadow-orange-500/20 flex gap-4 items-center animate-in fade-in slide-in-from-top-4 duration-500">
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-xl shrink-0">📣</div>
+                    <div className="flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Pengumuman Admin</p>
+                        <p className="text-sm font-bold leading-relaxed">{announcement}</p>
+                    </div>
+                    <button onClick={() => setAnnouncement(null)} className="p-2 hover:bg-black/10 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            )}
+
             {/* Navigation Cards */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Card Pendaftaran */}
@@ -198,6 +220,10 @@ function Dashboard() {
                     </div>
                 </div>
             </div>
+            
+            {user?.tier === 'PRO' && (
+                <AdvancedStatsSection />
+            )}
 
         </div>
     );

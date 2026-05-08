@@ -2,6 +2,12 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import * as Sentry from '@sentry/react'
+import { initSentry } from './utils/sentry'
+
+// Inisialisasi Sentry SEBELUM render aplikasi
+initSentry()
 
 import './index.css'
 import App from './App'
@@ -28,10 +34,31 @@ import NotFound from './pages/NotFound'
 import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+})
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {/* PEMBUNGKUS PENTING: ThemeProvider harus membungkus seluruh aplikasi */}
-    <ThemeProvider>
+    <Sentry.ErrorBoundary
+      fallback={
+        <div style={{ padding: '2rem', textAlign: 'center' }}>
+          <h2>Terjadi kesalahan pada aplikasi.</h2>
+          <p>Tim kami sudah diberitahu secara otomatis. Silakan muat ulang halaman.</p>
+          <button onClick={() => window.location.reload()} style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
+            Muat Ulang
+          </button>
+        </div>
+      }
+    >
+    <QueryClientProvider client={queryClient}>
+      {/* PEMBUNGKUS PENTING: ThemeProvider harus membungkus seluruh aplikasi */}
+      <ThemeProvider>
       <AuthProvider>
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <App>
@@ -188,6 +215,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           </App>
         </BrowserRouter>
       </AuthProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+    </Sentry.ErrorBoundary>
   </React.StrictMode>,
 )

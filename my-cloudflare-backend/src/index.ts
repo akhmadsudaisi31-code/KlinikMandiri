@@ -7,11 +7,14 @@ import admin from './routes/admin'
 import settings from './routes/settings'
 import sks from './routes/sks'
 import icd from './routes/icd'
+import errorLogs from './routes/errorLogs'
+import upload from './routes/upload'
 
 type Bindings = {
   DB: D1Database
   JWT_SECRET: string
   RESEND_API_KEY: string
+  LAB_RESULTS: R2Bucket
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -78,7 +81,9 @@ app.get('/', (c) => c.text('KlinikMandiri API is running'))
 // 1. JWT Verification
 app.use('/api/*', async (c, next) => {
   const path = c.req.path
-  if (path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/reset-password') {
+  if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/reset-password')
+    || (path.includes('/errors') && c.req.method === 'POST')
+    || (path.includes('/upload/lab-result/') && c.req.method === 'GET')) { 
     return next()
   }
   
@@ -95,10 +100,27 @@ app.use('/api/*', async (c, next) => {
   return handler(c, next)
 })
 
+// 3. Demo Sandboxing Middleware (Prevent writes for demo users)
+app.use('/api/*', async (c, next) => {
+  const method = c.req.method
+  const payload: any = c.get('jwtPayload')
+  
+  if (['POST', 'PUT', 'DELETE'].includes(method) && payload?.uid?.startsWith('demo-')) {
+    console.log(`[DEMO] Simulating ${method} request for user ${payload.uid}`);
+    return c.json({ 
+      success: true, 
+      message: 'Mode Demo: Perubahan disimulasikan dan tidak disimpan ke server agar akun demo tetap bersih.',
+      isDemo: true 
+    }, 200)
+  }
+  return next()
+})
+
 // 2. Clinic Status & Admin Check
 app.use('/api/*', async (c, next) => {
   const path = c.req.path
-  if (path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/me' || path === '/api/auth/renew' || path === '/api/auth/reset-password') {
+  if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/me') || path.includes('/auth/renew') || path.includes('/auth/reset-password')
+    || (path.includes('/upload/lab-result/') && c.req.method === 'GET')) {
     return next()
   }
 
@@ -133,5 +155,17 @@ app.route('/api', settings)
 app.route('/api/admin', admin)
 app.route('/api/sks', sks)
 app.route('/api/icd', icd)
+app.route('/api/upload', upload)
+app.route('/api', errorLogs)
+
+// Global Broadcast GET for clinic users
+app.get('/api/broadcast', async (c) => {
+    try {
+        const lastBroadcast = await c.env.DB.prepare('SELECT message FROM broadcasts ORDER BY createdAt DESC LIMIT 1').first();
+        return c.json(lastBroadcast || { message: null });
+    } catch (e) {
+        return c.json({ message: null });
+    }
+});
 
 export default app

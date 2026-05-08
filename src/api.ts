@@ -1,5 +1,16 @@
 import { broadcastDataSync, inferSyncResources } from './utils/dataSync';
 import toast from 'react-hot-toast';
+import { reportError } from './hooks/useErrorLogger';
+
+// Special error class for duplicate examination (HTTP 409)
+export class DuplicateExaminationError extends Error {
+  existingId: string;
+  constructor(message: string, existingId: string) {
+    super(message);
+    this.name = 'DuplicateExaminationError';
+    this.existingId = existingId;
+  }
+}
 
 const isProd = window.location.hostname === 'klinikmandiri.pages.dev' || 
                window.location.hostname === 'satset-rm.pages.dev';
@@ -19,7 +30,10 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   const token = localStorage.getItem('token');
   
   const headers = new Headers(options.headers || {});
-  headers.set('Content-Type', 'application/json');
+  // JANGAN set Content-Type jika mengirim FormData (biar browser yang set boundary-nya)
+  if (!(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -32,31 +46,60 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
 
     if (!response.ok) {
         if (response.status === 401) {
-            // Token expired or invalid for this backend
             localStorage.removeItem('token');
             localStorage.removeItem('user');
-            
-            // Limit toast for 401
             const now = Date.now();
             if (now - (lastErrorTimes['401'] || 0) > ERROR_QUIET_PERIOD) {
                 lastErrorTimes['401'] = now;
                 toast.error('Sesi habis atau tidak valid. Silakan login kembali.', { id: 'auth-error' });
             }
-            
-            // Redirect if not already on login/register pages
             if (!['/login', '/register', '/lupa-password'].includes(window.location.pathname)) {
                 window.location.href = '/login';
             }
             throw new Error('Unauthorized');
         }
 
+        let errorBody: any = {};
         let errorMsg = 'An error occurred';
         try {
-          const errRes = await response.json();
-          errorMsg = errRes.error || errRes.message || errorMsg;
+          errorBody = await response.json();
+          errorMsg = errorBody.error || errorBody.message || errorMsg;
         } catch (e) {
           errorMsg = response.statusText;
         }
+
+        // Handle duplicate examination (409) as a special typed error
+        if (response.status === 409 && errorBody.code === 'DUPLICATE_EXAMINATION') {
+          throw new DuplicateExaminationError(errorMsg, errorBody.existingId || '');
+        }
+
+        // report error to D1 logger (unless already handled or 401)
+        if (response.status !== 401) {
+            let metadata = null;
+            if (options.body) {
+                try {
+                    const parsed = JSON.parse(options.body as string);
+                    // Sanitize sensitive fields
+                    const sanitized = { ...parsed };
+                    ['password', 'oldPassword', 'newPassword', 'pin', 'token'].forEach(key => {
+                        if (sanitized[key]) sanitized[key] = '********';
+                    });
+                    metadata = {
+                        method: options.method || 'GET',
+                        payload: sanitized,
+                        status: response.status,
+                        statusText: response.statusText
+                    };
+                } catch (e) {
+                    metadata = { method: options.method || 'GET', status: response.status };
+                }
+            } else {
+                metadata = { method: options.method || 'GET', status: response.status };
+            }
+
+            reportError(new Error(`API ${response.status}: ${errorMsg} (${endpoint})`), { metadata }).catch(() => {});
+        }
+
         throw new Error(errorMsg);
     }
 
@@ -113,12 +156,12 @@ export const api = {
   post: (endpoint: string, data: any) =>
     fetchAPI(endpoint, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: data instanceof FormData ? data : JSON.stringify(data),
     }),
   put: (endpoint: string, data: any) =>
     fetchAPI(endpoint, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: data instanceof FormData ? data : JSON.stringify(data),
     }),
   delete: (endpoint: string, data?: any) =>
     fetchAPI(endpoint, {

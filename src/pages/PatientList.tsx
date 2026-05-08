@@ -14,7 +14,12 @@ const ITEMS_PER_PAGE = 10;
 function PatientList() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({
+    name: '',
+    nik: '',
+    address: '',
+    age: ''
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -123,14 +128,20 @@ function PatientList() {
   };
 
   const filteredPatients = useMemo(() => {
-    const lowerSearch = searchTerm.toLowerCase();
-    if (!lowerSearch) return patients;
-    return patients.filter(p =>
-      p.name.toLowerCase().includes(lowerSearch) ||
-      p.address.toLowerCase().includes(lowerSearch) ||
-      p.rm.includes(lowerSearch)
-    );
-  }, [patients, searchTerm]);
+    return patients.filter(p => {
+      const qName = filters.name.toLowerCase().trim();
+      const qNik = filters.nik.toLowerCase().trim();
+      const qAddress = filters.address.toLowerCase().trim();
+      const qAge = filters.age.toLowerCase().trim();
+
+      const matchName = !qName || p.name.toLowerCase().includes(qName) || p.rm.includes(qName);
+      const matchNik = !qNik || ((p as any).nik || '').toLowerCase().includes(qNik);
+      const matchAddress = !qAddress || (p.address || '').toLowerCase().includes(qAddress);
+      const matchAge = !qAge || (p.ageDisplay || '').toLowerCase().includes(qAge);
+
+      return matchName && matchNik && matchAddress && matchAge;
+    });
+  }, [patients, filters]);
 
   const paginatedPatients = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -158,24 +169,77 @@ function PatientList() {
         </Link>
       </div>
 
-      {/* Search Section */}
-      <div className="bg-white dark:bg-dark-surface p-2 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors">
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-            </svg>
+      {/* Multi-Filter Section */}
+      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border transition-colors">
+        <div className="flex justify-between items-center mb-4">
+            <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
+                Filter Pencarian
+            </h2>
+            {(filters.name || filters.nik || filters.address || filters.age) && (
+                <button 
+                  onClick={() => setFilters({ name: '', nik: '', address: '', age: '' })}
+                  className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    Hapus Filter
+                </button>
+            )}
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Nama / RM</label>
+            <input
+                type="text"
+                className="block w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-transparent rounded-xl focus:ring-2 focus:ring-primary-500 focus:bg-white dark:focus:bg-gray-900 focus:border-transparent text-sm transition-all dark:text-white"
+                placeholder="Cari Nama..."
+                value={filters.name}
+                onChange={(e) => {
+                  setFilters({ ...filters, name: e.target.value });
+                  setCurrentPage(1);
+                }}
+            />
           </div>
-          <input
-            type="text"
-            className="block w-full pl-11 pr-4 py-3.5 border-transparent rounded-xl leading-5 bg-gray-50 dark:bg-gray-800 focus:bg-white dark:focus:bg-gray-900 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent sm:text-sm transition-all dark:text-white"
-            placeholder="Cari Nama, Nomor RM, atau Alamat..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-          />
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">NIK</label>
+            <input
+                type="text"
+                className="block w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-transparent rounded-xl focus:ring-2 focus:ring-primary-500 focus:bg-white dark:focus:bg-gray-900 focus:border-transparent text-sm transition-all dark:text-white"
+                placeholder="Cari NIK..."
+                value={filters.nik}
+                onChange={(e) => {
+                  setFilters({ ...filters, nik: e.target.value });
+                  setCurrentPage(1);
+                }}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Alamat</label>
+            <input
+                type="text"
+                className="block w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-transparent rounded-xl focus:ring-2 focus:ring-primary-500 focus:bg-white dark:focus:bg-gray-900 focus:border-transparent text-sm transition-all dark:text-white"
+                placeholder="Cari Alamat..."
+                value={filters.address}
+                onChange={(e) => {
+                  setFilters({ ...filters, address: e.target.value });
+                  setCurrentPage(1);
+                }}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Usia</label>
+            <input
+                type="text"
+                className="block w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-transparent rounded-xl focus:ring-2 focus:ring-primary-500 focus:bg-white dark:focus:bg-gray-900 focus:border-transparent text-sm transition-all dark:text-white"
+                placeholder="Cari Usia..."
+                value={filters.age}
+                onChange={(e) => {
+                  setFilters({ ...filters, age: e.target.value });
+                  setCurrentPage(1);
+                }}
+            />
+          </div>
         </div>
       </div>
 

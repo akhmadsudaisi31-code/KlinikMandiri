@@ -152,8 +152,25 @@
     background-color: rgb(var(--color-primary-50));
     background-image:
       radial-gradient(at 0% 0%, hsla(var(--bg-gradient-start), 1) 0, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(var(--bg-gradient-end), 1) 0, transparent 50%);
+      radial-gradient(at 100% 0%, hsla(var(--bg-gradient-start), 1) 0, transparent 50%);
     @apply text-gray-900 dark:bg-dark-bg dark:text-dark-text transition-colors duration-500;
+  }
+
+  input[type="text"], 
+  input[type="number"], 
+  input[type="date"], 
+  input[type="time"], 
+  input[type="email"], 
+  input[type="password"], 
+  input[type="search"],
+  input[type="tel"],
+  textarea, 
+  select {
+    @apply border-2 border-gray-900 dark:border-gray-500 focus:ring-4 focus:ring-primary-500/20 focus:border-primary-600 transition-all duration-200 outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white;
+  }
+
+  label {
+    @apply text-gray-900 dark:text-gray-200;
   }
 }
 

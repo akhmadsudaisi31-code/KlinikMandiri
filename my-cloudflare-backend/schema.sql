@@ -30,10 +30,23 @@ CREATE TABLE IF NOT EXISTS patients (
     ageDisplay TEXT,
     poli TEXT DEFAULT 'Pendaftaran',
     allergies TEXT,
+    keluhan TEXT,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     createdBy TEXT,
     FOREIGN KEY (clinicId) REFERENCES clinics(id)
+);
+
+-- Tabel Sub-Akun Staf (Clinic Users)
+CREATE TABLE IF NOT EXISTS clinic_users (
+    id TEXT PRIMARY KEY,       -- UUID untuk staf
+    clinicId TEXT NOT NULL,    -- Menunjuk ke ID Klinik utama
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,    -- Password hash (PBKDF2)
+    role TEXT NOT NULL,        -- 'SUPER_ADMIN', 'DOKTER', 'APOTEKER', 'PENDAFTARAN'
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (clinicId) REFERENCES clinics(id) ON DELETE CASCADE
 );
 
 -- Tabel Obat

@@ -1,10 +1,12 @@
 import React from "react";
 import { MedicineItem } from "../../types";
+import { GenericSearchableSelect } from "../GenericSearchableSelect";
 
 interface MedicineSectionProps {
   selectedMedicines: MedicineItem[];
   onRemove: (id: string) => void;
-  onRuleChange: (id: string, rule: string) => void;
+  onRuleChange: (id: string, value: string, field: "signa" | "aturanPakai" | "aturanMinum") => void;
+  onQuantityChange: (id: string, quantity: number) => void;
   onOpenSelector: () => void;
   biayaDisplay: string;
   onBiayaChange: (val: string) => void;
@@ -16,6 +18,7 @@ export const MedicineSection: React.FC<MedicineSectionProps> = ({
   selectedMedicines,
   onRemove,
   onRuleChange,
+  onQuantityChange,
   onOpenSelector,
   biayaDisplay,
   onBiayaChange,
@@ -55,19 +58,82 @@ export const MedicineSection: React.FC<MedicineSectionProps> = ({
         ) : (
           <div className="grid grid-cols-1 gap-3">
             {selectedMedicines.map((item) => (
-              <div key={item.medicineId} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700 group">
-                <div className="flex-1">
-                  <h4 className="font-black text-gray-900 dark:text-white text-sm uppercase">{item.medicineName}</h4>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase">{item.quantity} {item.unit}</p>
+              <div key={item.medicineId} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-900 dark:border-gray-500 group">
+                <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div>
+                    <h4 className="font-black text-gray-900 dark:text-white text-sm uppercase">{item.medicineName}</h4>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase">{item.unit}</p>
+                  </div>
+                  <div className="mt-2 sm:mt-0 flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={item.quantity === 0 ? "" : item.quantity}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, "");
+                        onQuantityChange(item.medicineId, val === "" ? 0 : Number(val));
+                      }}
+                      className="w-16 px-2 py-1 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-lg text-xs font-black text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-100 outline-none text-center"
+                    />
+                    <span className="text-[10px] text-gray-900 dark:text-gray-300 font-black uppercase">Qty</span>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={item.aturanMinum || ""}
-                    onChange={(e) => onRuleChange(item.medicineId, e.target.value)}
-                    placeholder="Aturan minum (mis: 3x1 sesudah makan)"
-                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold focus:ring-2 focus:ring-primary-100 outline-none"
-                  />
+                <div className="flex-[2] flex flex-col md:flex-row gap-2">
+                  <div className="flex-1 min-w-[120px]">
+                    <label className="block text-[9px] font-black text-gray-900 dark:text-gray-300 uppercase mb-0.5 ml-1">Signa</label>
+                    <GenericSearchableSelect
+                      options={["1 x 1", "2 x 1", "3 x 1", "4 x 1", "3 x 1/2", "3 x 2", "1 x 1/2", "2 x 1/2", "Setiap 8 jam", "Setiap 12 jam", "Setiap 24 jam", "prn / jika perlu", "Lainnya"]}
+                      value={item.signa || "3 x 1"}
+                      onChange={(val) => onRuleChange(item.medicineId, val, "signa")}
+                      placeholder="Pilih Signa..."
+                    />
+                    {item.signa === "Lainnya" && (
+                      <input
+                        type="text"
+                        value={item.aturanMinum?.split(' - ')[0] || ""}
+                        onChange={(e) => {
+                           const parts = (item.aturanMinum || "").split(' - ');
+                           const rule = e.target.value + (parts[1] ? ` - ${parts[1]}` : "");
+                           onRuleChange(item.medicineId, rule, "aturanMinum");
+                        }}
+                        placeholder="Ketik signa..."
+                        className="mt-1 w-full px-2 py-1 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-lg text-[10px] font-black outline-none"
+                      />
+                    )}
+                  </div>
+                  <div className="flex-[2]">
+                    <label className="block text-[9px] font-black text-gray-900 dark:text-gray-300 uppercase mb-0.5 ml-1">Aturan Pakai</label>
+                    <GenericSearchableSelect
+                      options={[
+                        "Sesudah makan (p.c)",
+                        "Sebelum makan (a.c)",
+                        "Saat makan (d.c)",
+                        "Sebelum tidur (h.s)",
+                        "Pagi hari (m)",
+                        "Malam hari (v)",
+                        "Teteskan pada mata kanan",
+                        "Teteskan pada mata kiri",
+                        "Teteskan pada kedua mata",
+                        "Oleskan tipis-tipis",
+                        "Kumur-kumur",
+                        "Dihisap",
+                        "Dikunyah",
+                        "Lainnya"
+                      ]}
+                      value={item.aturanPakai || "Sesudah makan (p.c)"}
+                      onChange={(val) => onRuleChange(item.medicineId, val, "aturanPakai")}
+                      placeholder="Pilih Aturan Pakai..."
+                    />
+                    {item.aturanPakai === "Lainnya" && (
+                      <input
+                        type="text"
+                        value={item.aturanMinum || ""}
+                        onChange={(e) => onRuleChange(item.medicineId, e.target.value, "aturanMinum")}
+                        placeholder="Ketik aturan pakai..."
+                        className="mt-1 w-full px-2 py-1 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-lg text-[10px] font-black outline-none"
+                      />
+                    )}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -85,15 +151,15 @@ export const MedicineSection: React.FC<MedicineSectionProps> = ({
       </div>
 
       <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
-        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest pl-1">Total Biaya Pelayanan (Rp)</label>
+        <label className="text-xs font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">Total Biaya Pelayanan (Rp)</label>
         <div className="mt-2 relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">Rp</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-gray-900 dark:text-gray-400">Rp</span>
           <input
             type="text"
             value={biayaDisplay}
             onChange={(e) => onBiayaChange(e.target.value)}
             onBlur={onBlurBiaya}
-            className="w-full pl-12 pr-4 py-4 bg-primary-50/30 dark:bg-primary-900/10 border-2 border-primary-100 dark:border-primary-900/30 rounded-2xl text-xl font-black text-primary-700 dark:text-primary-400 focus:ring-0 outline-none"
+            className="w-full pl-12 pr-4 py-4 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-2xl text-2xl font-black text-primary-700 dark:text-primary-400 outline-none"
             placeholder="0"
           />
         </div>

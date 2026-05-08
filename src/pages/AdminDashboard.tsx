@@ -20,6 +20,7 @@ interface ClinicEntry {
     validUntil?: string;
     createdAt: string;
     lastLoginAt?: string;
+    tier?: string;
 }
 
 function formatValidUntil(validUntil?: string) {
@@ -39,11 +40,91 @@ function AdminDashboard() {
   const { user, loading: authLoading, login: userLogin } = useAuth();
   const [clinics, setClinics] = useState<ClinicEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'clinics' | 'plans' | 'addons' | 'errorlogs'>('clinics');
+
+  // Error Logs State
+  const [errorLogs, setErrorLogs] = useState<any[]>([]);
+  const [errorLogsLoading, setErrorLogsLoading] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [errorLogFilter, setErrorLogFilter] = useState('');
+  const [errorPagination, setErrorPagination] = useState({ page: 1, totalPages: 1, total: 0 });
+
+  const fetchErrorLogs = async (page = 1) => {
+    setErrorLogsLoading(true);
+    try {
+      const res: any = await api.get(`/errors?page=${page}&limit=20`);
+      setErrorLogs(res.data || []);
+      setErrorPagination(res.pagination || { page: 1, totalPages: 1, total: 0 });
+    } catch (e) {
+      setErrorLogs([]);
+    } finally {
+      setErrorLogsLoading(false);
+    }
+  };
+
+  const deleteErrorLog = async (id: string) => {
+    if(!confirm('Hapus log error ini?')) return;
+    try {
+      await api.delete(`/errors/${id}`);
+      toast.success('Log dihapus');
+      fetchErrorLogs(errorPagination.page);
+    } catch(e) {
+      toast.error('Gagal menghapus log');
+    }
+  };
+
+  const clearAllErrorLogs = async () => {
+    if(!confirm('⚠️ PERINGATAN: Hapus SEMUA log error yang ada? Tindakan ini tidak dapat dibatalkan.')) return;
+    try {
+      await api.delete('/errors/clear-all');
+      toast.success('Semua log telah dibersihkan');
+      fetchErrorLogs(1);
+    } catch(e) {
+      toast.error('Gagal membersihkan log');
+    }
+  };
+
+
+  // SaaS Data
+  const [plans, setPlans] = useState<any[]>([]);
+  const [addons, setAddons] = useState<any[]>([]);
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingClinic, setEditingClinic] = useState<ClinicEntry | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', subscriptionPlan: '', validUntil: '' });
+  const [editForm, setEditForm] = useState({ 
+      enabledFeatures: { anc: false, kb: false, immunization: false, dental: false, lab: false, reports: false, eye: false, systemic_physic: false, medicines: false, lab_upload: false },
+      maxPatients: 0,
+      maxUsers: 0,
+      tier: 'STANDARD'
+  });
+
+  // Broadcast History State
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
+  const [broadcastsLoading, setBroadcastsLoading] = useState(false);
+
+  const fetchBroadcasts = async () => {
+    setBroadcastsLoading(true);
+    try {
+      const data: any = await api.get('/admin/broadcasts');
+      setBroadcasts(data || []);
+    } catch (e) {
+      console.error("Failed to fetch broadcasts", e);
+    } finally {
+      setBroadcastsLoading(false);
+    }
+  };
+
+  const deleteBroadcast = async (id: string) => {
+    if (!confirm('Hapus broadcast ini?')) return;
+    try {
+      await api.delete(`/admin/broadcasts/${id}`);
+      toast.success('Broadcast dihapus');
+      fetchBroadcasts();
+    } catch (e) {
+      toast.error('Gagal menghapus broadcast');
+    }
+  };
 
   // Activity Modal State
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
@@ -67,19 +148,37 @@ function AdminDashboard() {
     }
   };
 
+  const fetchSaaSData = async () => {
+    try {
+      const [p, a]: any = await Promise.all([
+          api.get('/admin/plans'),
+          api.get('/admin/addons')
+      ]);
+      setPlans(p || []);
+      setAddons(a || []);
+    } catch (e) {
+      console.error("SaaS Data Fetch Error:", e);
+    }
+  };
+
   useEffect(() => {
     if (user && user.isAdmin === 1) {
       fetchClinics();
+      fetchSaaSData();
 
       const unsubscribe = subscribeDataSync(['admin-clinics'], () => {
         fetchClinics();
       });
 
+      if (activeTab === 'broadcast') {
+        fetchBroadcasts();
+      }
+
       return () => {
         unsubscribe();
       };
     }
-  }, [user]);
+  }, [user, activeTab]);
 
   const handleActivate = async (id: string) => {
     if (!window.confirm('Aktifkan klinik ini? Email notifikasi akan dikirimkan.')) return;
@@ -128,28 +227,53 @@ function AdminDashboard() {
     }
   };
 
-  const handleEditClick = (clinic: ClinicEntry) => {
+  const handleEditClick = async (clinic: ClinicEntry) => {
     setEditingClinic(clinic);
+    setIsEditModalOpen(true);
+    
+    // Default form
     setEditForm({
       name: clinic.name,
       email: clinic.email,
       phone: clinic.phone || '',
       subscriptionPlan: clinic.subscriptionPlan || 'YEARLY',
-      validUntil: clinic.validUntil ? clinic.validUntil.split('T')[0] : ''
+      tier: clinic.tier || 'STANDARD',
+      validUntil: clinic.validUntil ? clinic.validUntil.split('T')[0] : '',
+      enabledFeatures: { anc: false, kb: false, immunization: false, dental: false, lab: false, reports: false, eye: false, systemic_physic: false, medicines: false, lab_upload: false },
+      maxPatients: (clinic as any).maxPatients || 0,
+      maxUsers: (clinic as any).maxUsers || 0
     });
-    setIsEditModalOpen(true);
+
+    try {
+        const features: any = await api.get(`/admin/clinics/${clinic.id}/features`);
+        setEditForm(prev => ({ ...prev, enabledFeatures: { ...prev.enabledFeatures, ...features } }));
+    } catch (e) {
+        console.error("Gagal mengambil fitur klinik:", e);
+    }
   };
 
   const handleUpdateClinic = async () => {
     if (!editingClinic) return;
     try {
-      await api.put(`/admin/clinics/${editingClinic.id}`, editForm);
-      toast.success('Data profil klinik berhasil diperbarui');
+      await Promise.all([
+          api.put(`/admin/clinics/${editingClinic.id}`, {
+              name: editForm.name,
+              email: editForm.email,
+              phone: editForm.phone,
+              subscriptionPlan: editForm.subscriptionPlan,
+              tier: editForm.tier,
+              validUntil: editForm.validUntil,
+              maxPatients: editForm.maxPatients,
+              maxUsers: editForm.maxUsers
+          }),
+          api.put(`/admin/clinics/${editingClinic.id}/features`, editForm.enabledFeatures)
+      ]);
+      toast.success('Data profil dan fitur klinik berhasil diperbarui');
       setIsEditModalOpen(false);
       setEditingClinic(null);
       fetchClinics();
     } catch (e) {
-      toast.error('Gagal memperbarui profil klinik');
+      toast.error('Gagal memperbarui data klinik');
     }
   };
 
@@ -312,18 +436,59 @@ function AdminDashboard() {
   );
 
   return (
-    <div className="space-y-6 pb-20 max-w-6xl mx-auto">
+    <div className="space-y-6 pb-20 px-4 sm:px-6 lg:px-8">
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-8 rounded-3xl text-white shadow-2xl">
         <h1 className="text-3xl font-black uppercase tracking-tighter">Panel <span className="text-primary-400">Administrator</span></h1>
         <p className="text-gray-400 text-sm font-bold mt-1 uppercase tracking-widest">Kelola aktivasi, masa aktif, dan akses klinik</p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex bg-white dark:bg-gray-800 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 w-fit">
+          <button 
+            onClick={() => setActiveTab('clinics')}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'clinics' ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+              Data Klinik
+          </button>
+          <button 
+            onClick={() => setActiveTab('plans')}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'plans' ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+              Paket SaaS
+          </button>
+          <button 
+            onClick={() => setActiveTab('addons')}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'addons' ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+              Add-ons
+          </button>
+          <button 
+            onClick={() => setActiveTab('roadmap')}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'roadmap' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+              🚀 Roadmap
+          </button>
+          <button 
+            onClick={() => setActiveTab('broadcast')}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'broadcast' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+              📣 Broadcast
+          </button>
+          <button 
+            onClick={() => { setActiveTab('errorlogs'); fetchErrorLogs(1); }}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'errorlogs' ? 'bg-red-600 text-white shadow-lg shadow-red-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+            🔴 Error Logs
+          </button>
+      </div>
+
       <div className="bg-white dark:bg-dark-surface p-6 rounded-3xl shadow-soft dark:shadow-none border border-gray-100 dark:border-dark-border">
-        {loading ? (
-             <div className="text-center py-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Memuat data klinik...</div>
-        ) : (
-          <>
-          {/* Desktop Table View */}
+        {activeTab === 'clinics' ? (
+            loading ? (
+                <div className="text-center py-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Memuat data klinik...</div>
+           ) : (
+             <>
+             {/* Desktop Table View */}
           <div className="hidden lg:block overflow-x-auto">
             <table className="min-w-full">
               <thead>
@@ -331,6 +496,7 @@ function AdminDashboard() {
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Klinik</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Kontak</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Jenis Klinik</th>
+                  <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Tier</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Paket</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Aktif Sampai</th>
                   <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
@@ -354,6 +520,15 @@ function AdminDashboard() {
                     <td className="px-6 py-4">
                         <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-3 py-1 rounded-full uppercase tracking-widest">
                             {clinic.clinicType || '-'}
+                        </span>
+                    </td>
+                    <td className="px-6 py-4">
+                        <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
+                            clinic.tier === 'PRO' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600' :
+                            clinic.tier === 'STANDARD' ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-600' :
+                            'bg-slate-50 dark:bg-slate-800 text-slate-500'
+                        }`}>
+                            {clinic.tier || 'STANDARD'}
                         </span>
                     </td>
                     <td className="px-6 py-4">
@@ -448,6 +623,348 @@ function AdminDashboard() {
             )}
           </div>
           </>
+          )
+        ) : activeTab === 'plans' ? (
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black uppercase tracking-tight">Daftar Paket Sistem</h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {plans.map(plan => (
+                        <div key={plan.id} className="p-6 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+                            <div className="flex justify-between items-start mb-4">
+                                <h3 className="text-lg font-black uppercase">{plan.name}</h3>
+                                <span className="text-[10px] font-black bg-blue-100 text-blue-600 px-2 py-1 rounded uppercase tracking-tighter">ID: {plan.id}</span>
+                            </div>
+                            <div className="space-y-2 mb-6 text-sm text-gray-600 dark:text-gray-400">
+                                <p>Monthly: <strong>Rp {plan.price_monthly?.toLocaleString()}</strong></p>
+                                <p>Yearly: <strong>Rp {plan.price_yearly?.toLocaleString()}</strong></p>
+                            </div>
+                            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Fitur Aktif:</p>
+                                <div className="flex flex-wrap gap-1">
+                                    {Object.entries(JSON.parse(plan.features_json || '{}'))
+                                      .filter(([_, val]) => val === true)
+                                      .map(([key]) => (
+                                        <span key={key} className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-md font-bold uppercase">{key}</span>
+                                      ))
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <p className="text-xs text-gray-400 italic font-medium">* Untuk saat ini, penambahan paket baru dilakukan via migrasi database SQL.</p>
+            </div>
+        ) : activeTab === 'roadmap' ? (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+                <div className="bg-indigo-600 p-8 rounded-3xl text-white relative overflow-hidden">
+                    <div className="relative z-10">
+                        <h2 className="text-2xl font-black uppercase tracking-tight">CMS Roadmap & Masukan</h2>
+                        <p className="text-indigo-100 text-sm font-medium mt-1">Ide pengembangan CMS pusat untuk optimalisasi manajemen client SaaS</p>
+                    </div>
+                    <svg className="absolute -right-10 -bottom-10 w-64 h-64 text-indigo-500/20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Prioritas Pengembangan</h3>
+                        {[
+                            { title: 'Feature Tier Presets', desc: 'Bundling fitur ke dalam kategori Basic, Standard, & Professional untuk kemudahan aktivasi masal.', status: 'PLANNING', icon: '📦' },
+                            { title: 'Impersonation Mode', desc: 'Sudah diimplementasikan—Memungkinkan admin login sebagai client untuk membantu troubleshooting.', status: 'DONE', icon: '👤' },
+                            { title: 'Usage Analytics per Client', desc: 'Melihat grafik penggunaan fitur (misal: jumlah pasien, resep) untuk dasar penentuan biaya.', status: 'IDEA', icon: '📊' },
+                            { title: 'Client Quota System', desc: 'Membatasi jumlah record (pasien/user) sesuai paket yang dibeli.', status: 'PLANNING', icon: '🔒' },
+                        ].map((item, i) => (
+                            <div key={i} className="flex gap-4 p-5 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 hover:border-indigo-300 transition-all">
+                                <span className="text-2xl">{item.icon}</span>
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="text-sm font-black uppercase">{item.title}</h4>
+                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${item.status === 'DONE' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>{item.status}</span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium leading-relaxed">{item.desc}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Saran Optimasi Bisnis</h3>
+                        <div className="p-6 bg-emerald-50 dark:bg-emerald-900/10 rounded-3xl border border-emerald-100 dark:border-emerald-900/30 space-y-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">💡</div>
+                                <h4 className="text-sm font-black text-emerald-800 dark:text-emerald-400 uppercase">Tips Up-selling Fitur</h4>
+                            </div>
+                            <ul className="space-y-3">
+                                {[
+                                    'Berikan masa trial 7 hari untuk fitur Premium (misal: Poli Mata/Gigi).',
+                                    'Buat fitur "Laporan Lanjutan" sebagai add-on berbayar di luar paket utama.',
+                                    'Implementasi "White Labeling" (ganti logo/domain) untuk klien institusi besar.',
+                                    'Tawarkan integrasi API BPJS/SatuSehat sebagai paket Enterprise.',
+                                ].map((tip, i) => (
+                                    <li key={i} className="flex gap-3 text-[11px] text-emerald-700 dark:text-emerald-300 font-bold leading-relaxed">
+                                        <span className="text-emerald-500 mt-0.5">✔</span>
+                                        {tip}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        <div className="p-6 bg-white dark:bg-gray-800 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center text-center py-10">
+                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Ingin menambah fitur lain?</p>
+                            <p className="text-[10px] text-gray-400 italic mb-4">"Kembangkan CMS ini secara bertahap sesuai feedback nyata dari dokter/bidan di lapangan."</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        ) : activeTab === 'broadcast' ? (
+            <div className="space-y-8 py-10 animate-in fade-in slide-in-from-top-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                    <div className="space-y-6">
+                        <div className="space-y-2">
+                            <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center text-3xl shadow-lg shadow-orange-100/50">📣</div>
+                            <h2 className="text-2xl font-black uppercase tracking-tight">Kirim Pengumuman Global</h2>
+                            <p className="text-gray-400 text-sm font-medium">Pesan ini akan muncul di dashboard semua klien yang sedang aktif.</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-xl space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Isi Pengumuman</label>
+                                <textarea 
+                                    id="broadcast-msg"
+                                    rows={4}
+                                    placeholder="Tulis informasi pembaruan fitur atau berita penting lainnya di sini..."
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl text-sm font-bold focus:border-orange-500 outline-none transition-all resize-none"
+                                />
+                            </div>
+                            <button 
+                                onClick={async () => {
+                                    const msg = (document.getElementById('broadcast-msg') as HTMLTextAreaElement).value;
+                                    if(!msg) return toast.error('Pesan tidak boleh kosong');
+                                    try {
+                                        await api.post('/admin/broadcast', { message: msg });
+                                        toast.success('Pengumuman berhasil dikirim!');
+                                        (document.getElementById('broadcast-msg') as HTMLTextAreaElement).value = '';
+                                        fetchBroadcasts();
+                                    } catch(e) {
+                                        toast.error('Gagal mengirim broadcast');
+                                    }
+                                }}
+                                className="w-full py-4 bg-orange-600 hover:bg-orange-700 text-white font-black uppercase tracking-widest rounded-2xl shadow-lg shadow-orange-500/20 transition-all active:scale-95"
+                            >
+                                Kirim Sekarang 🚀
+                            </button>
+                        </div>
+                        
+                        <div className="p-6 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex gap-4 items-center">
+                            <span className="text-xl">ℹ️</span>
+                            <p className="text-[11px] text-blue-700 dark:text-blue-400 font-bold leading-relaxed italic">Broadcast akan langsung tampil di banner atas dashboard klien secara real-time.</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Riwayat Broadcast</h3>
+                                <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">Daftar pesan yang pernah dikirim</p>
+                            </div>
+                            <button onClick={fetchBroadcasts} className="text-[10px] font-black text-primary-600 uppercase hover:underline">Refresh</button>
+                        </div>
+
+                        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                            {broadcastsLoading ? (
+                                <div className="text-center py-10 animate-pulse text-gray-300 font-black uppercase tracking-widest">Memuat riwayat...</div>
+                            ) : broadcasts.length === 0 ? (
+                                <div className="text-center py-20 bg-gray-50 dark:bg-gray-800/50 rounded-3xl border-2 border-dashed border-gray-100 dark:border-gray-700 text-gray-400">
+                                    <p className="text-xs font-black uppercase tracking-widest">Belum ada riwayat broadcast</p>
+                                </div>
+                            ) : (
+                                broadcasts.map((b: any) => (
+                                    <div key={b.id} className="group bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:border-orange-200 transition-all">
+                                        <div className="flex justify-between items-start gap-4 mb-3">
+                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{formatToWIB(b.createdAt)}</span>
+                                            <button 
+                                                onClick={() => deleteBroadcast(b.id)}
+                                                className="text-gray-300 hover:text-red-500 transition-colors"
+                                                title="Hapus Pesan"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <p className="text-sm font-bold text-gray-700 dark:text-gray-200 leading-relaxed">{b.message}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        ) : activeTab === 'errorlogs' ? (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                  Error Logs
+                </h2>
+                <p className="text-xs text-gray-400 font-medium mt-0.5">Memantau stabilitas sistem • {errorPagination.total} log terdeteksi</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Filter pesan / klinik..." 
+                  value={errorLogFilter}
+                  onChange={e => setErrorLogFilter(e.target.value)}
+                  className="px-4 py-2 text-xs border-2 border-gray-100 dark:border-gray-700 rounded-xl dark:bg-gray-800 dark:text-white w-full md:w-48 outline-none focus:border-primary-500 transition-all"
+                />
+                <button 
+                  onClick={() => fetchErrorLogs(errorPagination.page)}
+                  className="px-4 py-2 text-xs font-black bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl hover:bg-gray-200 transition-all active:scale-95"
+                >↻ REFRESH</button>
+                <button 
+                  onClick={clearAllErrorLogs}
+                  className="px-4 py-2 text-xs font-black bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 transition-all active:scale-95 border border-red-100 dark:border-red-900/50"
+                >🗑️ BERSIHKAN SEMUA</button>
+              </div>
+            </div>
+
+            {errorLogsLoading ? (
+              <div className="text-center py-24">
+                  <div className="w-12 h-12 border-4 border-gray-100 border-t-red-500 rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-xs font-black text-gray-300 uppercase tracking-[0.2em]">Sinkronisasi Log...</p>
+              </div>
+            ) : errorLogs.length === 0 ? (
+              <div className="text-center py-24 bg-gray-50 dark:bg-gray-800/30 rounded-3xl border-2 border-dashed border-gray-100 dark:border-gray-700">
+                  <span className="text-4xl mb-4 block">✨</span>
+                  <p className="text-sm font-black text-gray-400 uppercase tracking-widest">Sistem dalam kondisi prima. Tidak ada error.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {errorLogs
+                  .filter(log => !errorLogFilter || 
+                    (log.clinicId || '').toLowerCase().includes(errorLogFilter.toLowerCase()) ||
+                    (log.errorMessage || '').toLowerCase().includes(errorLogFilter.toLowerCase()) ||
+                    (log.userEmail || '').toLowerCase().includes(errorLogFilter.toLowerCase())
+                  )
+                  .map((log: any) => (
+                  <div key={log.id} className={`group bg-white dark:bg-gray-800 rounded-2xl border-2 transition-all ${expandedLogId === log.id ? 'border-red-500 shadow-lg shadow-red-500/5' : 'border-gray-50 dark:border-gray-700 hover:border-gray-200'}`}>
+                    <div 
+                      className="flex flex-col sm:flex-row sm:items-center gap-4 p-5 cursor-pointer"
+                      onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded uppercase tracking-tighter shrink-0">CRITICAL</span>
+                            <p className="text-sm font-black text-gray-900 dark:text-white truncate tracking-tight">{log.errorMessage || '(no message)'}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
+                          <div className="flex items-center gap-1.5">
+                             <div className="w-4 h-4 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center text-[8px]">🏥</div>
+                             <span className="text-[10px] text-gray-500 font-bold">{log.clinicId}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                             <div className="w-4 h-4 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center text-[8px]">🔗</div>
+                             <span className="text-[10px] text-gray-400 font-medium truncate max-w-[200px]">{log.url}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        <div className="text-right">
+                            <p className="text-[10px] text-gray-900 dark:text-gray-100 font-black">{log.createdAt ? new Date(log.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}</p>
+                            <p className="text-[9px] text-gray-400 font-bold uppercase">{log.createdAt ? new Date(log.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : '-'}</p>
+                        </div>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); deleteErrorLog(log.id); }}
+                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                    {expandedLogId === log.id && (
+                      <div className="px-5 pb-6 border-t border-gray-100 dark:border-gray-700/50 pt-5 space-y-5 animate-in slide-in-from-top-2 duration-300">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Identitas User</p>
+                                <p className="text-xs font-black text-gray-900 dark:text-white truncate">{log.userEmail || '-'}</p>
+                                <p className="text-[9px] text-gray-400 font-bold mt-0.5">UID: {log.userId || '-'}</p>
+                            </div>
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Waktu Kejadian</p>
+                                <p className="text-xs font-black text-gray-900 dark:text-white">{log.createdAt ? new Date(log.createdAt).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' }) : '-'}</p>
+                            </div>
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Browser / OS</p>
+                                <p className="text-[10px] font-bold text-gray-600 dark:text-gray-400 leading-relaxed truncate" title={log.userAgent}>{log.userAgent || '-'}</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                             <span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
+                             Stack Trace / Jejak Error
+                          </p>
+                          <pre className="text-[11px] font-mono text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-5 rounded-2xl overflow-x-auto whitespace-pre-wrap break-words max-h-64 border border-gray-100 dark:border-gray-800 leading-relaxed">{log.errorStack || '(tidak ada stack trace)'}</pre>
+                        </div>
+                        
+                        {log.metadata && (
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Metadata / Payload Tambahan</p>
+                            <pre className="text-[11px] font-mono text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10 p-5 rounded-2xl overflow-x-auto whitespace-pre-wrap break-words border border-blue-100 dark:border-blue-900/30 leading-relaxed">
+                              {typeof log.metadata === 'string' ? log.metadata : JSON.stringify(log.metadata, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* Pagination Controls */}
+                <div className="pt-6 flex items-center justify-between border-t border-gray-100 dark:border-gray-800 mt-6">
+                    <p className="text-xs font-bold text-gray-400">
+                        Halaman <span className="text-gray-900 dark:text-white font-black">{errorPagination.page}</span> dari <span className="text-gray-900 dark:text-white font-black">{errorPagination.totalPages}</span>
+                    </p>
+                    <div className="flex gap-2">
+                        <button 
+                            disabled={errorPagination.page <= 1 || errorLogsLoading}
+                            onClick={() => fetchErrorLogs(errorPagination.page - 1)}
+                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                        >
+                            ← Sebelumnya
+                        </button>
+                        <button 
+                            disabled={errorPagination.page >= errorPagination.totalPages || errorLogsLoading}
+                            onClick={() => fetchErrorLogs(errorPagination.page + 1)}
+                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-primary-600 text-white rounded-xl shadow-lg shadow-primary-500/20 hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                        >
+                            Berikutnya →
+                        </button>
+                    </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black uppercase tracking-tight">Daftar Add-ons</h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {addons.map(addon => (
+                        <div key={addon.id} className="p-6 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+                            <h3 className="text-lg font-black uppercase mb-1">{addon.name}</h3>
+                            <p className="text-[10px] font-black text-blue-600 uppercase mb-4">Key: {addon.feature_key}</p>
+                            <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                                <p>Monthly: <strong>Rp {addon.price_monthly?.toLocaleString()}</strong></p>
+                                <p>Yearly: <strong>Rp {addon.price_yearly?.toLocaleString()}</strong></p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
         )}
       </div>
 
@@ -509,6 +1026,22 @@ function AdminDashboard() {
                 </select>
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tier Akun</label>
+                <div className="grid grid-cols-2 gap-2">
+                    <button 
+                        type="button"
+                        onClick={() => setEditForm({...editForm, tier: 'STANDARD'})}
+                        className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl border-2 transition-all ${editForm.tier === 'STANDARD' ? 'border-sky-500 bg-sky-50 text-sky-600' : 'border-gray-100 text-gray-400'}`}
+                    >Standard</button>
+                    <button 
+                        type="button"
+                        onClick={() => setEditForm({...editForm, tier: 'PRO'})}
+                        className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl border-2 transition-all ${editForm.tier === 'PRO' ? 'border-emerald-500 bg-emerald-50 text-emerald-600 shadow-lg shadow-emerald-500/10' : 'border-gray-100 text-gray-400'}`}
+                    >Pro (Advanced)</button>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1 italic leading-tight">Tier Pro mengaktifkan statistik bisnis lanjutan di dashboard klien.</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Masa Aktif (Hingga Tanggal)</label>
                 <div className="flex gap-2">
                     <input 
@@ -535,6 +1068,75 @@ function AdminDashboard() {
                     </button>
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1 italic leading-tight">Ubah paket di atas lalu klik "RESET DARI HARI INI" untuk otomatis memperbarui tanggal, atau atur secara manual.</p>
+              </div>
+
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between items-center mb-3">
+                   <label className="block text-xs font-black text-gray-500 uppercase tracking-widest">Fitur & Tier Preset</label>
+                   <div className="flex gap-1">
+                      <button 
+                        onClick={() => setEditForm({...editForm, tier: 'STANDARD', enabledFeatures: { anc: false, kb: false, immunization: false, dental: false, lab: true, reports: true, eye: false, systemic_physic: false, medicines: true, lab_upload: false }})}
+                        className="text-[8px] font-black bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded hover:bg-gray-200 uppercase"
+                      >Basic</button>
+                      <button 
+                        onClick={() => setEditForm({...editForm, tier: 'STANDARD', enabledFeatures: { anc: true, kb: true, immunization: true, dental: false, lab: true, reports: true, eye: false, systemic_physic: true, medicines: true, lab_upload: false }})}
+                        className="text-[8px] font-black bg-blue-100 text-blue-600 px-2 py-1 rounded hover:bg-blue-200 uppercase"
+                      >Standard</button>
+                      <button 
+                        onClick={() => setEditForm({...editForm, tier: 'PRO', enabledFeatures: { anc: true, kb: true, immunization: true, dental: true, lab: true, reports: true, eye: true, systemic_physic: true, medicines: true, lab_upload: true }})}
+                        className="text-[8px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded hover:bg-emerald-200 uppercase"
+                      >Pro</button>
+                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                    {[
+                      { id: 'anc', label: 'ANC (Kehamilan)' },
+                      { id: 'kb', label: 'KB' },
+                      { id: 'immunization', label: 'Imunisasi' },
+                      { id: 'dental', label: 'Poli Gigi' },
+                      { id: 'lab', label: 'Laboratorium' },
+                      { id: 'reports', label: 'Laporan' },
+                      { id: 'medicines', label: 'Manajemen Obat' },
+                      { id: 'eye', label: 'Poli Mata' },
+                      { id: 'systemic_physic', label: 'Sistemik Fisik' },
+                      { id: 'lab_upload', label: 'Upload Hasil Lab' },
+                    ].map((feature) => (
+                        <label key={feature.id} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors border-2 ${ (editForm.enabledFeatures as any)[feature.id] ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/10' : 'bg-gray-50 dark:bg-gray-800 border-transparent'}`}>
+                            <input 
+                                type="checkbox"
+                                checked={(editForm.enabledFeatures as any)[feature.id]}
+                                onChange={(e) => setEditForm({
+                                    ...editForm,
+                                    enabledFeatures: { ...editForm.enabledFeatures, [feature.id]: e.target.checked }
+                                })}
+                                className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                            />
+                            <span className={`text-[10px] font-black uppercase tracking-widest ${ (editForm.enabledFeatures as any)[feature.id] ? 'text-primary-700 dark:text-primary-300' : 'text-gray-500'}`}>{feature.label}</span>
+                        </label>
+                    ))}
+                </div>
+
+                <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Batasan Kapasitas (Quota)</label>
+                <div className="grid grid-cols-2 gap-4">
+                   <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Max Pasien (0=Unlimit)</label>
+                      <input 
+                        type="number" 
+                        value={editForm.maxPatients} 
+                        onChange={e => setEditForm({...editForm, maxPatients: parseInt(e.target.value)})} 
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl text-xs font-bold"
+                      />
+                   </div>
+                   <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Max User Staff (0=Unlimit)</label>
+                      <input 
+                        type="number" 
+                        value={editForm.maxUsers} 
+                        onChange={e => setEditForm({...editForm, maxUsers: parseInt(e.target.value)})} 
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl text-xs font-bold"
+                      />
+                   </div>
+                </div>
               </div>
             </div>
             

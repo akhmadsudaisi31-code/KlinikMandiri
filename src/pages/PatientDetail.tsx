@@ -29,6 +29,7 @@ function PatientDetail() {
   const [examinations, setExaminations] = useState<Examination[]>([]);
   const [loading, setLoading] = useState(true);
   const [showVisitForm, setShowVisitForm] = useState(false);
+  const [editingVisitId, setEditingVisitId] = useState<string | null>(null);
   
   // Detail Modal
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -96,6 +97,44 @@ function PatientDetail() {
     }
   };
 
+  const handleDeleteExamination = async (examinationId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm('Hapus rekam medis ini? Data tidak dapat dikembalikan.')) return;
+    try {
+      await api.delete(`/examinations/${examinationId}`);
+      setExaminations(prev => prev.filter(ex => ex.id !== examinationId));
+      toast.success('Rekam medis berhasil dihapus.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Gagal menghapus rekam medis.');
+    }
+  };
+
+  const handleEditVisit = (visit: Visit) => {
+    setEditingVisitId(visit.id);
+    reset({
+      diagnosis: visit.diagnosis,
+      therapy: visit.therapy,
+      notes: visit.notes || '',
+      cost: String(visit.cost)
+    });
+    setShowVisitForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDeleteVisit = async (visitId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Hapus riwayat kunjungan ini?')) return;
+    try {
+      await api.delete(`/visits/${visitId}`);
+      setVisits(prev => prev.filter(v => v.id !== visitId));
+      toast.success('Riwayat kunjungan berhasil dihapus.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Gagal menghapus riwayat kunjungan.');
+    }
+  };
+
   const handleAddToPoli = async () => {
     if (!patient || !user) return;
     if (window.confirm(`Tambahkan ${patient.name} ke antrian ${examinationUnitLabel}?`)) {
@@ -144,11 +183,10 @@ function PatientDetail() {
     if (!user || !patient) return;
 
     try {
-      const newVisit = {
+      const visitData = {
         patientId: patient.id,
         patientName: patient.name,
         patientRm: patient.rm,
-        date: new Date().toISOString(),
         diagnosis: data.diagnosis || '-',
         therapy: data.therapy || '-',
         notes: data.notes || '',
@@ -157,15 +195,22 @@ function PatientDetail() {
         clinicId: user.uid
       };
 
-      const res = await api.post('/visits', newVisit);
+      if (editingVisitId) {
+        await api.put(`/visits/${editingVisitId}`, visitData);
+        setVisits(prev => prev.map(v => v.id === editingVisitId ? { ...v, ...visitData } as any : v));
+        toast.success('Riwayat kunjungan berhasil diperbarui!');
+      } else {
+        const res = await api.post('/visits', { ...visitData, date: new Date().toISOString() });
+        setVisits(prev => [{ ...visitData, id: res?.id || Date.now().toString(), date: new Date().toISOString() } as any, ...prev]);
+        toast.success('Kunjungan berhasil dicatat!');
+      }
 
-      setVisits(prev => [{ ...newVisit, id: res?.id || Date.now().toString() } as any, ...prev]);
-      toast.success('Kunjungan berhasil dicatat!');
       reset();
       setShowVisitForm(false);
-    } catch (error) {
+      setEditingVisitId(null);
+    } catch (error: any) {
       console.error(error);
-      toast.error('Gagal menyimpan kunjungan.');
+      toast.error(error.message || 'Gagal menyimpan kunjungan.');
     }
   };
 
@@ -249,16 +294,17 @@ function PatientDetail() {
           Kirim ke {examinationUnitLabel}
         </button>
 
-        <button onClick={() => navigate('/')} className="w-full py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-dark-surface hover:bg-gray-50 dark:hover:bg-gray-800 transition-all shadow-sm hover:shadow-md mb-3">
-          &larr; Kembali ke Dashboard
-        </button>
-
-        <button
-          onClick={handleDelete}
-          className="w-full py-3 text-sm font-bold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 border border-red-100 dark:border-red-900/30 rounded-xl bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all shadow-sm"
-        >
-          Hapus Data Pasien
-        </button>
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={() => navigate('/')} className="py-2.5 text-[11px] font-bold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-dark-surface hover:bg-gray-50 dark:hover:bg-gray-800 transition-all uppercase tracking-widest text-center">
+            &larr; Dashboard
+          </button>
+          <button
+            onClick={handleDelete}
+            className="py-2.5 text-[11px] font-bold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 border border-red-100 dark:border-red-900/30 rounded-xl bg-red-50/50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all uppercase tracking-widest text-center"
+          >
+            Hapus Pasien
+          </button>
+        </div>
       </div>
 
       {/* KOLOM KANAN: RIWAYAT KUNJUNGAN */}
@@ -286,8 +332,15 @@ function PatientDetail() {
         {showVisitForm && (
           <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-xl border border-primary-100 dark:border-gray-700 overflow-hidden ring-1 ring-primary-50 dark:ring-0 animate-fade-in-up transition-colors">
             <div className="bg-primary-600 px-6 py-4 flex justify-between items-center">
-              <h3 className="text-white font-bold text-lg">Pemeriksaan Baru</h3>
-              <button onClick={() => setShowVisitForm(false)} className="text-white/80 hover:text-white">
+              <h3 className="text-white font-bold text-lg">{editingVisitId ? 'Edit Kunjungan' : 'Pemeriksaan Baru'}</h3>
+              <button 
+                onClick={() => {
+                  setShowVisitForm(false);
+                  setEditingVisitId(null);
+                  reset();
+                }} 
+                className="text-white/80 hover:text-white"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -341,13 +394,13 @@ function PatientDetail() {
                 </div>
               </div>
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
-                <button type="button" onClick={() => setShowVisitForm(false)} className="w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Batal</button>
+                <button type="button" onClick={() => { setShowVisitForm(false); setEditingVisitId(null); reset(); }} className="w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Batal</button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="w-full sm:w-auto px-8 py-2.5 text-sm font-bold text-white bg-primary-600 rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 dark:shadow-none disabled:opacity-70 disabled:cursor-not-allowed transition-all"
                 >
-                  {isSubmitting ? 'Menyimpan...' : 'Simpan Data'}
+                  {isSubmitting ? 'Menyimpan...' : (editingVisitId ? 'Simpan Perubahan' : 'Simpan Data')}
                 </button>
               </div>
             </form>
@@ -367,86 +420,125 @@ function PatientDetail() {
             [...visits, ...examinations]
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
               .map((item) => {
-                const isExamination = 'pemeriksaan' in item;
+                const isExamination = 'keluhanUtama' in item;
                 const diagnosis = isExamination ? (item as Examination).diagnosa : (item as Visit).diagnosis;
 
                 return (
                   <div key={item.id} className="relative flex flex-col md:flex-row items-start group z-10">
-                    {/* Tanggal (Desktop) */}
+                    {/* Tanggal (Desktop Column) */}
                     <div className="hidden md:block w-32 text-right pr-8 pt-2">
                       <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{format(new Date(item.date), 'dd MMM', { locale: localeId })}</div>
                       <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{format(new Date(item.date), 'yyyy', { locale: localeId })}</div>
                       <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{format(new Date(item.date), 'HH:mm', { locale: localeId })}</div>
-                      {isExamination && <span className="block mt-1 text-[10px] font-bold text-purple-600 dark:text-purple-400">PEMERIKSAAN</span>}
                     </div>
 
                     {/* Dot */}
                     <div className={`absolute left-0 md:left-32 ml-3 md:ml-0 h-5 w-5 rounded-full border-4 border-white dark:border-dark-bg ${isExamination ? 'bg-purple-500' : 'bg-primary-500'} shadow-md group-hover:scale-125 transition-transform duration-300`}></div>
 
-                    {/* Card */}
+                    {/* Card Container */}
                     <div 
                         onClick={() => {
                             setSelectedItem(item);
                             setIsModalOpen(true);
                         }}
-                        className="ml-10 md:ml-8 w-full bg-white dark:bg-dark-surface p-5 rounded-2xl border border-gray-100 dark:border-dark-border shadow-soft dark:shadow-none hover:shadow-lg dark:hover:bg-gray-800 transition-all duration-300 relative top-[-0.5rem] cursor-pointer"
+                        className="ml-8 md:ml-12 w-full bg-white dark:bg-dark-surface p-4 md:p-5 rounded-2xl border border-gray-100 dark:border-dark-border shadow-soft dark:shadow-none hover:shadow-lg dark:hover:bg-gray-800 transition-all duration-300 relative top-[-0.5rem] cursor-pointer group/card"
                     >
-                      {/* Tanggal (Mobile) */}
-                      <div className="md:hidden flex items-center gap-2 mb-3 text-sm text-gray-500 pb-3 border-b border-gray-50 dark:border-gray-700">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <span className="font-bold text-gray-900 dark:text-white">{format(new Date(item.date), 'dd MMMM yyyy', { locale: localeId })}</span>
-                        <span className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs dark:text-gray-300">{format(new Date(item.date), 'HH:mm', { locale: localeId })}</span>
-                        {isExamination && <span className="ml-auto text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 rounded-full">PEMERIKSAAN</span>}
+                      {/* Compact Header */}
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/80 px-2 py-1 rounded-lg border border-gray-100 dark:border-gray-700">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            <span className="whitespace-nowrap">{format(new Date(item.date), 'dd MMM yyyy', { locale: localeId })}</span>
+                            <span className="opacity-40">|</span>
+                            <span>{format(new Date(item.date), 'HH:mm')}</span>
+                          </div>
+                          {isExamination && (
+                            <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 rounded-lg border border-purple-100/50 dark:border-purple-800/50 uppercase tracking-tighter">
+                              Pemeriksaan
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Action Buttons - Compact */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isExamination) {
+                                navigate(`/pemeriksaan/${patient.id}?examId=${item.id}`);
+                              } else {
+                                handleEditVisit(item as Visit);
+                              }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-all"
+                            title="Edit"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isExamination) {
+                                handleDeleteExamination(item.id, e);
+                              } else {
+                                handleDeleteVisit(item.id, e);
+                              }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                            title="Hapus"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 gap-1">
-                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Diagnosa</span>
-                          <p className="text-gray-900 dark:text-gray-100 font-medium text-lg">{diagnosis || '-'}</p>
+                      <div className="space-y-2.5">
+                        <div className="grid grid-cols-1">
+                          <p className="text-gray-900 dark:text-gray-100 font-bold text-base md:text-lg leading-tight">{diagnosis || '-'}</p>
                         </div>
 
                         {/* Tampilan Khusus Pemeriksaan */}
                         {isExamination ? (
-                          <>
+                          <div className="space-y-2">
                             {(item as Examination).keluhanUtama && (
-                              <div className="grid grid-cols-1 gap-1">
-                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Keluhan</span>
-                                <p className="text-gray-700 dark:text-gray-300 italic">"{(item as Examination).keluhanUtama}"</p>
-                              </div>
-                            )}
-                            {(item as Examination).pemeriksaanFisik && (
-                              <div className="grid grid-cols-1 gap-1">
-                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Pemeriksaan Fisik</span>
-                                <p className="text-gray-700 dark:text-gray-300">{(item as Examination).pemeriksaanFisik}</p>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Keluhan Utama</span>
+                                <p className="text-gray-600 dark:text-gray-400 text-[13px] italic border-l-2 border-primary-200 dark:border-primary-800 pl-3 py-0.5">"{(item as Examination).keluhanUtama}"</p>
                               </div>
                             )}
                             {(item as Examination).medicines && (item as Examination).medicines.length > 0 && (
-                              <div className="grid grid-cols-1 gap-1">
-                                <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Obat</span>
-                                <div className="flex flex-wrap gap-2">
+                              <div className="flex flex-col gap-1.5 pt-1">
+                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Resep Obat</span>
+                                <div className="flex flex-wrap gap-1.5">
                                   {(item as Examination).medicines.map((med, idx) => (
-                                    <span key={idx} className="bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-2 py-1 rounded-lg text-sm border border-purple-100 dark:border-purple-800">
-                                      {med.medicineName} ({med.quantity} {med.unit}{med.aturanMinum ? `, ${med.aturanMinum}` : ""})
+                                    <span key={idx} className="bg-purple-50/50 dark:bg-purple-900/10 text-purple-700 dark:text-purple-300 px-2.5 py-1 rounded-lg text-xs font-semibold border border-purple-100/50 dark:border-purple-800/30 flex items-center gap-2">
+                                      <div className="w-1 h-1 rounded-full bg-purple-400"></div>
+                                      {med.medicineName} 
+                                      <span className="text-purple-500 dark:text-purple-400 font-black">{med.quantity} {med.unit}</span>
                                     </span>
                                   ))}
                                 </div>
                               </div>
                             )}
-                          </>
+                          </div>
                         ) : (
                           // Tampilan Khusus Kunjungan (Visit)
-                          <>
-                            <div className="grid grid-cols-1 gap-1">
-                              <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Terapi / Tindakan</span>
-                              <p className="text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700">{(item as Visit).therapy || '-'}</p>
+                          <div className="space-y-2">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Tindakan / Terapi</span>
+                              <p className="text-gray-700 dark:text-gray-300 text-[13px] leading-relaxed bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-700">{(item as Visit).therapy || '-'}</p>
                             </div>
                             {(item as Visit).notes && (
-                              <div className="flex gap-2 items-start text-sm text-yellow-700 dark:text-yellow-300 bg-yellow-50/50 dark:bg-yellow-900/20 p-2 rounded-lg">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                                <span>{(item as Visit).notes}</span>
+                              <div className="flex gap-2 items-start text-[11px] text-yellow-700 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/20 p-2 rounded-lg border border-yellow-100/30">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0 text-yellow-500 mt-0.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                                <span className="italic">{(item as Visit).notes}</span>
                               </div>
                             )}
-                          </>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -455,7 +547,6 @@ function PatientDetail() {
               })
           )}
         </div>
-
       </div>
       
       <ExaminationDetailModal 

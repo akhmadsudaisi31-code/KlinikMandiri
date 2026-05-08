@@ -5,6 +5,13 @@ export const ADULT_ODONTOGRAM_TEETH = [
   31, 32, 33, 34, 35, 36, 37, 38,
 ] as const;
 
+export const CHILD_ODONTOGRAM_TEETH = [
+  55, 54, 53, 52, 51, 61, 62, 63, 64, 65,
+  85, 84, 83, 82, 81, 71, 72, 73, 74, 75,
+] as const;
+
+export const ALL_ODONTOGRAM_TEETH = [...ADULT_ODONTOGRAM_TEETH, ...CHILD_ODONTOGRAM_TEETH] as const;
+
 export const DENTAL_TOOTH_STATUSES = [
   "Normal",
   "Karies",
@@ -23,7 +30,7 @@ export interface OdontogramTooth {
 }
 
 export function createDefaultOdontogram(): OdontogramTooth[] {
-  return ADULT_ODONTOGRAM_TEETH.map((toothNumber) => ({
+  return ALL_ODONTOGRAM_TEETH.map((toothNumber) => ({
     toothNumber,
     status: "Normal",
     note: "",
@@ -40,7 +47,7 @@ export function normalizeOdontogram(input: unknown): OdontogramTooth[] {
     if (!item || typeof item !== "object") continue;
     const toothNumber = Number((item as any).toothNumber);
     const status = String((item as any).status || "Normal");
-    if (!ADULT_ODONTOGRAM_TEETH.includes(toothNumber as any)) continue;
+    if (!ALL_ODONTOGRAM_TEETH.includes(toothNumber as any)) continue;
     if (!DENTAL_TOOTH_STATUSES.includes(status as DentalToothStatus)) continue;
     byTooth.set(toothNumber, {
       toothNumber,
@@ -49,7 +56,7 @@ export function normalizeOdontogram(input: unknown): OdontogramTooth[] {
     });
   }
 
-  return ADULT_ODONTOGRAM_TEETH.map((toothNumber) =>
+  return ALL_ODONTOGRAM_TEETH.map((toothNumber) =>
     byTooth.get(toothNumber) || {
       toothNumber,
       status: "Normal",

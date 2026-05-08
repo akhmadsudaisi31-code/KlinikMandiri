@@ -21,7 +21,7 @@ medical.get('/patients', async (c) => {
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
 
-  let query = 'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, poli, allergies, createdAt, updatedAt FROM patients WHERE clinicId = ?'
+  let query = 'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt FROM patients WHERE clinicId = ?'
   const params: any[] = [clinicId]
 
   if (startDate && endDate) {
@@ -59,34 +59,67 @@ medical.post('/patients', async (c) => {
   const clinicId = getClinicId(c)
   const body = await c.req.json()
 
-  // --- CEK UNIK RM (Kecuali '-') ---
-  if (body.rm && body.rm !== '-') {
+  let finalRm = body.rm;
+
+  // --- CEK ATAU BUAT RM ---
+  if (finalRm === 'AUTO') {
+     let success = false;
+     let nextNum = 1;
+
+     // Mulai dari total count + 1
+     const count: any = await c.env.DB.prepare(
+       'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
+     ).bind(clinicId).first();
+     
+     nextNum = (count?.total || 0) + 1;
+
+     let attempts = 0;
+     while (!success && attempts < 20) {
+         finalRm = `RM-${String(nextNum).padStart(4, '0')}`;
+         const existing = await c.env.DB.prepare('SELECT id FROM patients WHERE clinicId = ? AND rm = ?').bind(clinicId, finalRm).first();
+         if (!existing) {
+             success = true;
+         } else {
+             nextNum++;
+             attempts++;
+         }
+     }
+
+     if (!success) {
+         return c.json({ error: 'Mohon maaf, sistem kesulitan membuat nomor RM otomatis. Silakan coba masukkan nomor secara manual.' }, 400);
+     }
+  }
+  
+  // --- CEK UNIK RM (Jika diisi manual) ---
+  if (finalRm && finalRm !== '-' && body.rm !== 'AUTO') {
     const existing: any = await c.env.DB.prepare(
       'SELECT id FROM patients WHERE clinicId = ? AND rm = ?'
-    ).bind(clinicId, body.rm).first()
+    ).bind(clinicId, finalRm).first()
     
     if (existing) {
-      return c.json({ error: `Nomor RM ${body.rm} sudah terdaftar di klinik ini.` }, 400)
+      return c.json({ error: `Nomor RM ${finalRm} sudah digunakan oleh pasien lain di klinik ini.` }, 400)
     }
-  } else if (body.name && body.dob) {
-    // --- CEK UNIK NAMA + DOB (Untuk Tanpa RM) ---
+  }
+
+  // --- CEK UNIK NAMA + DOB (Selalu cek untuk mencegah duplikasi di database) ---
+  if (body.name && body.dob) {
     const existing: any = await c.env.DB.prepare(
       'SELECT id FROM patients WHERE clinicId = ? AND name = ? AND dob = ?'
     ).bind(clinicId, body.name, body.dob).first()
 
     if (existing) {
-      return c.json({ error: `Pasien dengan nama ${body.name} dan tanggal lahir ${body.dob} sudah terdaftar.` }, 400)
+      return c.json({ error: `Pasien dengan nama "${body.name}" dan tanggal lahir yang sama sudah ada dalam data klinik.` }, 400)
     }
   }
 
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   await c.env.DB.prepare(
-    `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, poli, allergies, createdBy, updatedAt) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, nik, poli, allergies, keluhan, createdBy, createdAt, updatedAt) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    id, clinicId, body.rm, body.name, body.namaSuami || null, body.gender, body.category, 
-    body.address, body.occupation || null, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.poli, body.allergies || null, clinicId, now
+    id, clinicId, finalRm, body.name, body.namaSuami || null, body.gender, body.category, 
+    body.address, body.occupation || null, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, clinicId, now, now
   ).run()
   
   return c.json({ id })
@@ -104,10 +137,10 @@ medical.put('/patients/:id', async (c) => {
       ).bind(body.poli, body.updatedAt || new Date().toISOString(), id, clinicId).run()
   } else {
       await c.env.DB.prepare(
-        'UPDATE patients SET name=?, namaSuami=?, gender=?, category=?, address=?, occupation=?, dob=?, ageYears=?, ageMonths=?, ageDisplay=?, poli=?, allergies=?, updatedAt=? WHERE id=? AND clinicId=?'
+        'UPDATE patients SET name=?, namaSuami=?, gender=?, category=?, address=?, occupation=?, dob=?, ageYears=?, ageMonths=?, ageDisplay=?, nik=?, poli=?, allergies=?, keluhan=?, updatedAt=? WHERE id=? AND clinicId=?'
       ).bind(
         body.name, body.namaSuami || null, body.gender, body.category, body.address, body.occupation || null, body.dob, 
-        body.ageYears, body.ageMonths, body.ageDisplay, body.poli, body.allergies || null, new Date().toISOString(), id, clinicId
+        body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, new Date().toISOString(), id, clinicId
       ).run()
   }
   
@@ -122,7 +155,7 @@ medical.delete('/patients/:id', async (c) => {
     'SELECT id FROM patients WHERE id = ? AND clinicId = ?'
   ).bind(id, clinicId).first()
 
-  if (!patient) return c.json({ error: 'Pasien tidak ditemukan' }, 404)
+  if (!patient) return c.json({ error: 'Data pasien tidak ditemukan atau sudah dihapus.' }, 404)
 
   await c.env.DB.batch(getPatientDeleteStatements(c.env.DB, id, clinicId))
   return c.json({ success: true })
@@ -132,9 +165,20 @@ medical.delete('/patients/:id', async (c) => {
 medical.get('/medicines', async (c) => {
   const clinicId = getClinicId(c)
   const { results } = await c.env.DB.prepare(
-    'SELECT id, name, unit, price FROM medicines WHERE clinicId = ? ORDER BY name ASC'
+    'SELECT id, name, unit, price, createdAt FROM medicines WHERE clinicId = ? ORDER BY name ASC'
   ).bind(clinicId).all()
   return c.json(results)
+})
+
+medical.get('/medicines/:id', async (c) => {
+  const clinicId = getClinicId(c)
+  const id = c.req.param('id')
+  const result = await c.env.DB.prepare(
+    'SELECT * FROM medicines WHERE id = ? AND clinicId = ?'
+  ).bind(id, clinicId).first()
+  
+  if (!result) return c.json({ error: 'Data obat tidak ditemukan atau sudah dihapus.' }, 404)
+  return c.json(result)
 })
 
 medical.post('/medicines', async (c) => {
@@ -149,6 +193,18 @@ medical.post('/medicines', async (c) => {
   return c.json({ id })
 })
 
+medical.put('/medicines/:id', async (c) => {
+  const clinicId = getClinicId(c)
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  
+  await c.env.DB.prepare(
+    'UPDATE medicines SET name = ?, unit = ?, price = ?, updatedAt = ? WHERE id = ? AND clinicId = ?'
+  ).bind(body.name, body.unit, body.price || 0, new Date().toISOString(), id, clinicId).run()
+  
+  return c.json({ success: true })
+})
+
 medical.delete('/medicines/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
@@ -159,11 +215,17 @@ medical.delete('/medicines/:id', async (c) => {
 // --- EXAMINATIONS ---
 medical.get('/examinations/today', async (c) => {
   const clinicId = getClinicId(c)
-  const today = new Date().toISOString().split('T')[0]
+  
+  // Format WIB boundaries (UTC+7) manually to ensure strictly 'today' in local time
+  const now = new Date()
+  const wibTimeStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now)
+  
+  const startIso = new Date(`${wibTimeStr}T00:00:00+07:00`).toISOString()
+  const endIso = new Date(`${wibTimeStr}T23:59:59.999+07:00`).toISOString()
   
   const { results } = await c.env.DB.prepare(
-    "SELECT * FROM examinations WHERE clinicId = ? AND date LIKE ? ORDER BY createdAt DESC"
-  ).bind(clinicId, `${today}%`).all()
+    "SELECT * FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ? ORDER BY createdAt DESC"
+  ).bind(clinicId, startIso, endIso).all()
   
   const formatted = results.map((r: any) => ({
     ...r,
@@ -223,7 +285,7 @@ medical.get('/examinations/:id', async (c) => {
      WHERE examinations.id = ? AND examinations.clinicId = ?`
   ).bind(id, clinicId).first()
   
-  if (!result) return c.json({ error: 'Pemeriksaan tidak ditemukan' }, 404)
+  if (!result) return c.json({ error: 'Data pemeriksaan tidak ditemukan atau sudah dihapus.' }, 404)
   
   return c.json({
     ...result,
@@ -245,7 +307,7 @@ medical.put('/examinations/:id', async (c) => {
       spo2 = ?, pemeriksaanFisik = ?, diagnosa = ?, 
       icd10 = ?, medicines_json = ?, tindakan = ?, 
       edukasi = ?, rencanaTindakLanjut = ?, biaya = ?, 
-      extendedData_json = ?, updatedAt = ? 
+      extendedData_json = ?, updatedAt = ?
      WHERE id = ? AND clinicId = ?`
   ).bind(
     body.keluhanUtama, body.riwayatPenyakitSekarang, body.tensi,
@@ -260,39 +322,54 @@ medical.put('/examinations/:id', async (c) => {
   return c.json({ success: true })
 })
 
+medical.delete('/examinations/:id', async (c) => {
+  const clinicId = getClinicId(c)
+  const id = c.req.param('id')
+  await c.env.DB.prepare('DELETE FROM examinations WHERE id = ? AND clinicId = ?').bind(id, clinicId).run()
+  return c.json({ success: true })
+})
+
+
 medical.post('/examinations', async (c) => {
   const clinicId = getClinicId(c)
   const body = await c.req.json()
 
-  // --- CEK IDEMPOTENCY (Pemeriksaan Ganda dalam waktu dekat) ---
-  // Jika pasien sudah diperiksa dalam 1 jam terakhir dengan diagnosa yang sama, cegah duplikasi tidak sengaja.
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  // --- CEK IDEMPOTENCY (Mencegah Double-Submit Tidak Sengaja) ---
+  // Hanya cegah duplikasi dalam 3 MENIT terakhir (bukan 1 jam).
+  // Ini cukup untuk mencegah double-click tanpa mengganggu workflow normal dokter.
+  const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
   const duplicate: any = await c.env.DB.prepare(
     'SELECT id FROM examinations WHERE clinicId = ? AND patientId = ? AND createdAt > ? LIMIT 1'
-  ).bind(clinicId, body.patientId, oneHourAgo).first()
+  ).bind(clinicId, body.patientId, threeMinutesAgo).first()
 
   if (duplicate && !body.forceSave) {
     return c.json({ 
-      error: 'Pasien ini baru saja diperiksa dalam 1 jam terakhir.',
+      error: 'Data pasien ini baru saja disimpan dalam 3 menit terakhir. Klik simpan sekali lagi jika Anda ingin tetap menyimpannya sebagai kunjungan baru.',
       code: 'DUPLICATE_EXAMINATION',
       existingId: duplicate.id 
     }, 409)
   }
 
   const id = crypto.randomUUID()
+  const nowISO = new Date().toISOString()
   
   const patient: any = await c.env.DB.prepare('SELECT id FROM patients WHERE id = ? AND clinicId = ?').bind(body.patientId, clinicId).first()
-  if (!patient) return c.json({ error: 'Pasien tidak ditemukan di klinik ini' }, 404)
+  if (!patient) return c.json({ error: 'Mohon maaf, data pasien tidak ditemukan dalam sistem klinik.' }, 404)
 
   await c.env.DB.prepare(
-    `INSERT INTO examinations (id, clinicId, patientId, patientName, patientRm, keluhanUtama, riwayatPenyakitSekarang, tensi, nadi, suhu, respirasi, bb, tb, spo2, pemeriksaanFisik, diagnosa, icd10, medicines_json, tindakan, edukasi, rencanaTindakLanjut, biaya, extendedData_json, createdBy) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO examinations (id, clinicId, patientId, patientName, patientRm, keluhanUtama, riwayatPenyakitSekarang, tensi, nadi, suhu, respirasi, bb, tb, spo2, pemeriksaanFisik, diagnosa, icd10, medicines_json, tindakan, edukasi, rencanaTindakLanjut, biaya, extendedData_json, createdBy, date, createdAt) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id, clinicId, body.patientId, body.patientName, body.patientRm, body.keluhanUtama, body.riwayatPenyakitSekarang,
     body.tensi, body.nadi, body.suhu, body.respirasi, body.bb, body.tb, body.spo2, body.pemeriksaanFisik,
     body.diagnosa, body.icd10, JSON.stringify(body.medicines || []), body.tindakan, body.edukasi,
-    body.rencanaTindakLanjut, body.biaya, body.extendedData_json, clinicId
+    body.rencanaTindakLanjut, body.biaya, body.extendedData_json, clinicId, nowISO, nowISO
   ).run()
+
+  // Clear keluhan in patient master data so it doesn't persist for the next visit
+  await c.env.DB.prepare(
+    'UPDATE patients SET keluhan = NULL WHERE id = ? AND clinicId = ?'
+  ).bind(body.patientId, clinicId).run()
   
   return c.json({ id })
 })
@@ -313,7 +390,7 @@ medical.post('/visits', async (c) => {
   const id = crypto.randomUUID()
   
   const patient: any = await c.env.DB.prepare('SELECT id FROM patients WHERE id = ? AND clinicId = ?').bind(body.patientId, clinicId).first()
-  if (!patient) return c.json({ error: 'Pasien tidak ditemukan di klinik ini' }, 404)
+  if (!patient) return c.json({ error: 'Mohon maaf, data pasien tidak ditemukan dalam sistem klinik.' }, 404)
 
   await c.env.DB.prepare(
     `INSERT INTO visits (id, clinicId, patientId, patientName, patientRm, diagnosis, therapy, notes, cost, createdBy) 
@@ -324,6 +401,25 @@ medical.post('/visits', async (c) => {
   ).run()
   
   return c.json({ id })
+})
+
+medical.put('/visits/:id', async (c) => {
+  const clinicId = getClinicId(c)
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  
+  await c.env.DB.prepare(
+    'UPDATE visits SET diagnosis = ?, therapy = ?, notes = ?, cost = ?, updatedAt = ? WHERE id = ? AND clinicId = ?'
+  ).bind(body.diagnosis, body.therapy, body.notes, body.cost, new Date().toISOString(), id, clinicId).run()
+  
+  return c.json({ success: true })
+})
+
+medical.delete('/visits/:id', async (c) => {
+  const clinicId = getClinicId(c)
+  const id = c.req.param('id')
+  await c.env.DB.prepare('DELETE FROM visits WHERE id = ? AND clinicId = ?').bind(id, clinicId).run()
+  return c.json({ success: true })
 })
 
 // --- NOTIFICATIONS ---
@@ -360,7 +456,7 @@ medical.post('/notifications', async (c) => {
   
   if (body.patientId) {
       const patient: any = await c.env.DB.prepare('SELECT id FROM patients WHERE id = ? AND clinicId = ?').bind(body.patientId, clinicId).first()
-      if (!patient) return c.json({ error: 'Pasien tidak ditemukan di klinik ini' }, 404)
+      if (!patient) return c.json({ error: 'Mohon maaf, data pasien tidak ditemukan dalam sistem klinik.' }, 404)
   }
 
   await c.env.DB.prepare(
@@ -368,6 +464,46 @@ medical.post('/notifications', async (c) => {
   ).bind(id, clinicId, body.type, body.patientId, body.patientName, body.message, body.toRole).run()
   
   return c.json({ id })
+})
+
+medical.get('/stats/advanced', async (c) => {
+  const clinicId = getClinicId(c)
+  
+  // 1. Monthly Revenue (Last 6 Months)
+  const revenueQuery = `
+    SELECT strftime('%Y-%m', createdAt) as month, SUM(biaya) as total 
+    FROM examinations 
+    WHERE clinicId = ? 
+    AND createdAt >= date('now', '-6 months')
+    GROUP BY month 
+    ORDER BY month ASC
+  `
+  const revenue = await c.env.DB.prepare(revenueQuery).bind(clinicId).all()
+
+  // 2. Top 5 Diagnoses
+  const diagnosesQuery = `
+    SELECT icd10, diagnosa, COUNT(*) as count 
+    FROM examinations 
+    WHERE clinicId = ? AND icd10 IS NOT NULL 
+    GROUP BY icd10, diagnosa 
+    ORDER BY count DESC LIMIT 5
+  `
+  const diagnoses = await c.env.DB.prepare(diagnosesQuery).bind(clinicId).all()
+
+  // 3. Gender Distribution
+  const genderQuery = `
+    SELECT gender, COUNT(*) as count 
+    FROM patients 
+    WHERE clinicId = ? 
+    GROUP BY gender
+  `
+  const gender = await c.env.DB.prepare(genderQuery).bind(clinicId).all()
+
+  return c.json({
+    revenue: revenue.results,
+    diagnoses: diagnoses.results,
+    gender: gender.results
+  })
 })
 
 export default medical

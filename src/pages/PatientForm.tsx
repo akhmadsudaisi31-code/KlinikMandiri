@@ -21,6 +21,8 @@ const schema = z.object({
   ageYears: z.string(),
   ageMonths: z.string(),
   poli: z.enum(POLI_OPTIONS, { required_error: 'Poli wajib diisi' }),
+  nik: z.string().optional(),
+  keluhan: z.string().optional(),
   namaSuami: z.string().optional(),
 }).refine(data => data.ageYears || data.ageMonths || data.dob, {
   message: 'Isi Umur (Tahun/Bulan) atau Tanggal Lahir',
@@ -29,6 +31,8 @@ const schema = z.object({
 
 interface ExtendedPatientFormData extends PatientFormData {
   manualRm?: string;
+  nik?: string;
+  keluhan?: string;
 }
 
 function PatientForm() {
@@ -53,7 +57,6 @@ function PatientForm() {
           return '-';
       }
   };
-  const getNextRmNumber = previewNextRmNumber;
 
   const {
     register,
@@ -73,6 +76,7 @@ function PatientForm() {
       ageYears: '',
       ageMonths: '',
       manualRm: '',
+      keluhan: '',
       poli: 'Pemeriksaan' as const,
     }
   });
@@ -127,12 +131,14 @@ function PatientForm() {
             setValue('ageYears', data.ageYears ? String(data.ageYears) : '');
             setValue('ageMonths', data.ageMonths ? String(data.ageMonths) : '');
             setValue('poli', data.poli || 'Pendaftaran');
+            setValue('nik', data.nik || '');
+            setValue('keluhan', data.keluhan || '');
           } else {
             toast.error('Data pasien tidak ditemukan.');
             navigate('/');
           }
         } catch (error) {
-          toast.error('Gagal mengambil data pasien.');
+          toast.error('Mohon maaf, data pasien tidak dapat ditemukan.');
         } finally {
           setIsFetchingData(false);
         }
@@ -178,7 +184,7 @@ function PatientForm() {
 
       if (!isEditMode) {
         if (rmMode === 'auto') {
-            finalRm = await getNextRmNumber();
+            finalRm = 'AUTO';
         } else if (rmMode === 'none') {
              // Pastikan RM diset ke '-' jika mode None
             finalRm = '-';
@@ -200,7 +206,9 @@ function PatientForm() {
         ageYears,
         ageMonths,
         ageDisplay,
+        nik: data.nik || null,
         poli: data.poli,
+        keluhan: data.keluhan || null,
         updatedAt: now,
         createdBy: user.uid,
       };
@@ -290,9 +298,9 @@ function PatientForm() {
           navigate('/pendaftaran');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving:", error);
-      toast.error('Gagal menyimpan data. Cek koneksi atau izin.');
+      toast.error('Mohon maaf, terjadi kendala saat menyimpan data. Silakan periksa koneksi internet Anda atau coba beberapa saat lagi.');
     } finally {
       setIsLoading(false);
     }
@@ -322,7 +330,7 @@ function PatientForm() {
               <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Nomor Rekam Medis (RM)</label>
 
               {!isEditMode && (
-                <div className="flex p-1 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex p-1 bg-white dark:bg-gray-800 rounded-lg border border-gray-900 dark:border-gray-700">
                   <button
                     type="button"
                     onClick={() => setRmMode('auto')}
@@ -356,7 +364,7 @@ function PatientForm() {
 
             {rmMode === 'auto' && (
               <div className="flex items-center gap-3">
-                <div className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 italic flex items-center gap-2">
+                <div className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 border border-gray-900 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 italic flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                   Akan dibuat otomatis ({nextRmPreview || '...'})
                 </div>
@@ -368,7 +376,7 @@ function PatientForm() {
                 <input
                   {...register('manualRm')}
                   placeholder="Ketik Nomor RM..."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-bold tracking-wide text-gray-900"
+                  className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-bold tracking-wide text-gray-900"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-1 flex items-center gap-1">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
@@ -379,7 +387,7 @@ function PatientForm() {
 
             {rmMode === 'none' && (
                <div className="flex items-center gap-3">
-                <div className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 italic flex items-center gap-2">
+                <div className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-800 border border-gray-900 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 italic flex items-center gap-2">
                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                   Pasien akan didaftarkan tanpa Nomor RM
                 </div>
@@ -390,10 +398,10 @@ function PatientForm() {
           {/* Nama and Suami Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Lengkap</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Lengkap <span className="text-red-500">*</span></label>
               <input
                 {...register('name')}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
                 placeholder="Masukkan nama pasien"
               />
               {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
@@ -405,7 +413,7 @@ function PatientForm() {
               </label>
               <input
                 {...register('namaSuami')}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
+                className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
                 placeholder={isDentalClinic ? 'Opsional untuk pasien anak atau pendamping' : 'Khusus Bumil/Anak (Opsional)'}
               />
             </div>
@@ -414,13 +422,13 @@ function PatientForm() {
           {/* Kategori & Gender Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Kategori</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Kategori <span className="text-red-500">*</span></label>
               <div className="relative">
                 <Controller
                   name="category"
                   control={control}
                   render={({ field }) => (
-                    <select {...field} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
+                    <select {...field} className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
                       <option value="">-- Pilih Kategori --</option>
                       {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
@@ -434,13 +442,13 @@ function PatientForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Jenis Kelamin</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Jenis Kelamin <span className="text-red-500">*</span></label>
               <div className="relative">
                 <Controller
                   name="gender"
                   control={control}
                   render={({ field }) => (
-                    <select {...field} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
+                    <select {...field} className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
                       <option value="">-- Pilih Gender --</option>
                       {GENDERS.map(gen => <option key={gen} value={gen}>{gen}</option>)}
                     </select>
@@ -456,11 +464,11 @@ function PatientForm() {
 
           {/* Alamat */}
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Alamat Lengkap</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Alamat Lengkap <span className="text-red-500">*</span></label>
             <textarea
               {...register('address')}
               rows={3}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+              className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
               placeholder="Jalan, RT/RW, Desa..."
             />
             {errors.address && <p className="mt-1 text-sm text-red-600">{errors.address.message}</p>}
@@ -471,20 +479,37 @@ function PatientForm() {
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Pekerjaan</label>
             <input
               {...register('occupation')}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
+              className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium text-gray-800 placeholder-gray-400"
               placeholder="Contoh: PNS, Karyawan Swasta, Ibu Rumah Tangga..."
             />
           </div>
 
+          {/* NIK */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              NIK (Opsional)
+              <span className="ml-2 text-[10px] font-normal text-gray-400 normal-case">Nomor Induk Kependudukan — 16 digit</span>
+            </label>
+            <input
+              {...register('nik')}
+              type="text"
+              maxLength={16}
+              inputMode="numeric"
+              className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-mono tracking-wider placeholder-gray-400"
+              placeholder="Contoh: 3374050102930004"
+            />
+          </div>
+
+
           {/* Poli */}
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Poli Tujuan</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Poli Tujuan <span className="text-red-500">*</span></label>
             <div className="relative">
               <Controller
                 name="poli"
                 control={control}
                 render={({ field }) => (
-                  <select {...field} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
+                  <select {...field} className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none bg-white">
                     {POLI_OPTIONS.map(poli => (
                       <option key={poli} value={poli}>
                         {poli === 'Pemeriksaan' ? examinationUnitLabel : poli}
@@ -502,6 +527,21 @@ function PatientForm() {
               {isDentalClinic
                 ? `Pilih "${examinationUnitLabel}" jika pasien akan langsung masuk pelayanan dokter gigi.`
                 : 'Pilih "Pemeriksaan" jika pasien akan langsung diperiksa'}
+            </p>
+          </div>
+
+          {/* Keluhan (Optional, passed to Examination) */}
+          <div className="bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30 rounded-xl p-5">
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Keluhan Utama (Opsional)</label>
+            <textarea
+              {...register('keluhan')}
+              rows={2}
+              className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-white dark:text-gray-900 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium"
+              placeholder="Contoh: Demam sejak 3 hari yang lalu..."
+            />
+            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 ml-1 font-medium flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+              Keluhan yang diisi di sini akan diteruskan langsung ke resep/catatan Dokter di poli.
             </p>
           </div>
 
@@ -528,7 +568,7 @@ function PatientForm() {
                 <input
                   type="date"
                   {...register('dob')}
-                  className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-900 dark:border-gray-600 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
                 <p className="text-[10px] text-gray-400 mt-1 ml-1">Otomatis hitung umur jika diisi</p>
               </div>
@@ -538,7 +578,7 @@ function PatientForm() {
                   <input
                     type="number"
                     {...register('ageYears')}
-                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-900 dark:border-gray-600 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>
                 <div>
@@ -546,7 +586,7 @@ function PatientForm() {
                   <input
                     type="number"
                     {...register('ageMonths')}
-                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-900 dark:border-gray-600 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   />
                 </div>
               </div>

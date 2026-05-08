@@ -58,3 +58,11 @@ export function formatWibSafe(dateStr: string | undefined, formatStr: string = '
         return '-';
     }
 }
+
+/**
+ * Gets the current date string (YYYY-MM-DD) strictly locked to WIB Timezone (Asia/Jakarta),
+ * circumventing local browser timezone shifts.
+ */
+export function getWibCurrentDateString(): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+}

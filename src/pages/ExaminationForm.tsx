@@ -3,9 +3,9 @@ import { useForm, SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { api, DuplicateExaminationError } from "../api";
 import { useAuth } from "../context/AuthContext";
-import { Patient, Medicine, MedicineItem, EXAM_CATEGORIES, ClinicSettings } from "../types";
+import { Patient, Medicine, MedicineItem, EXAM_CATEGORIES } from "../types";
 import { format, addDays, subMonths, addYears } from "date-fns";
 import toast from "react-hot-toast";
 import { MedicineSelectorModal } from "../components/MedicineSelectorModal";
@@ -19,6 +19,7 @@ import { SpecialtySection } from "../components/ExaminationForm/SpecialtySection
 import { MedicineSection } from "../components/ExaminationForm/MedicineSection";
 import { LabSection } from "../components/ExaminationForm/LabSection";
 import { broadcastPatientQueueUpdate } from "../utils/patientQueueSync";
+import { useFeatures } from "../hooks/useFeatures";
 
 const schema = z.object({
   // S
@@ -104,17 +105,65 @@ const schema = z.object({
   dentalGingiva: z.string().optional(),
   dentalPlaqueIndex: z.string().optional(),
   dentalCalculus: z.string().optional(),
-  dentalPalpation: z.string().optional(),
-  dentalPercussion: z.string().optional(),
-  dentalMobility: z.string().optional(),
-  dentalPocketDepth: z.string().optional(),
   dentalBleedingOnProbing: z.string().optional(),
+  showEyeExam: z.boolean().optional(),
+  
+  // Physical Exam Systems Toggles
+  showPhysicHead: z.boolean().optional(),
+  showPhysicThorax: z.boolean().optional(),
+  showPhysicAbdomen: z.boolean().optional(),
+  showPhysicExtremities: z.boolean().optional(),
+  showPhysicSkin: z.boolean().optional(),
+  showPhysicNeurology: z.boolean().optional(),
+  
+  // Physical Exam Systems Content
+  physicHead: z.string().optional(),
+  physicThorax: z.string().optional(),
+  physicAbdomen: z.string().optional(),
+  physicExtremities: z.string().optional(),
+  physicSkin: z.string().optional(),
+  physicNeurology: z.string().optional(),
 
   // Lab Data
   gds: z.string().optional(),
   asamUrat: z.string().optional(),
   kolesterol: z.string().optional(),
   hb: z.string().optional(),
+  labResultImages: z.array(z.string()).optional(),
+
+  // Eye Data
+  tod: z.string().optional(),
+  tos: z.string().optional(),
+  visusVOD: z.string().optional(),
+  visusVOS: z.string().optional(),
+  pemeriksaanMataInternal: z.string().optional(),
+  eyePalpebra: z.string().optional(),
+  eyeConjunctiva: z.string().optional(),
+  eyeSclera: z.string().optional(),
+  eyeCornea: z.string().optional(),
+  eyeBMD: z.string().optional(),
+  eyeIrisPupil: z.string().optional(),
+  eyeLens: z.string().optional(),
+  eyeFundus: z.string().optional(),
+}).superRefine((data, ctx) => {
+  const systems = [
+    { toggle: 'showPhysicHead', content: 'physicHead', label: 'Kepala & Leher' },
+    { toggle: 'showPhysicThorax', content: 'physicThorax', label: 'Thorax' },
+    { toggle: 'showPhysicAbdomen', content: 'physicAbdomen', label: 'Abdomen' },
+    { toggle: 'showPhysicExtremities', content: 'physicExtremities', label: 'Ekstremitas' },
+    { toggle: 'showPhysicSkin', content: 'physicSkin', label: 'Kulit' },
+    { toggle: 'showPhysicNeurology', content: 'physicNeurology', label: 'Neurologi' },
+  ];
+
+  systems.forEach(sys => {
+    if (data[sys.toggle as keyof typeof data] && !data[sys.content as keyof typeof data]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${sys.label} wajib diisi jika dicentang`,
+        path: [sys.content],
+      });
+    }
+  });
 });
 
 type ExaminationFormData = z.infer<typeof schema>;
@@ -149,7 +198,7 @@ function ExaminationForm() {
   const [icd10Items, setIcd10Items] = useState<Icd10Item[]>([]);
   const isDentalClinic = isDentalClinicType(user?.clinicType);
   const examPageTitle = getExamPageTitle(user?.clinicType);
-  const [settings, setSettings] = useState<ClinicSettings | null>(null);
+  const { isFeatureEnabled } = useFeatures();
 
   const {
     register,
@@ -201,6 +250,7 @@ function ExaminationForm() {
       skor: "",
       kunjunganAnc: "",
       usg: "",
+      labResultImage: "",
 
       // Persalinan Data
       jenisPersalinan: "",
@@ -236,11 +286,24 @@ function ExaminationForm() {
       dentalGingiva: "",
       dentalPlaqueIndex: "",
       dentalCalculus: "",
-      dentalPalpation: "",
-      dentalPercussion: "",
-      dentalMobility: "",
-      dentalPocketDepth: "",
       dentalBleedingOnProbing: "",
+      showEyeExam: false,
+
+      // Physical Exam Toggles
+      showPhysicHead: false,
+      showPhysicThorax: false,
+      showPhysicAbdomen: false,
+      showPhysicExtremities: false,
+      showPhysicSkin: false,
+      showPhysicNeurology: false,
+
+      // Physical Exam Content
+      physicHead: "",
+      physicThorax: "",
+      physicAbdomen: "",
+      physicExtremities: "",
+      physicSkin: "",
+      physicNeurology: "",
 
       // Persalinan Optional Toggle
       isPersalinan: false,
@@ -250,20 +313,26 @@ function ExaminationForm() {
       asamUrat: "",
       kolesterol: "",
       hb: "",
+      labResultImages: [],
+
+      // Eye Data
+      tod: "",
+      tos: "",
+      visusVOD: "",
+      visusVOS: "",
+      pemeriksaanMataInternal: "",
     },
 });
 
   const availableCategories = useMemo(() => {
-    if (!settings) return EXAM_CATEGORIES;
-    
     return EXAM_CATEGORIES.filter(cat => {
-      if (cat === 'Bumil' && !settings.enabledFeatures.anc) return false;
-      if (cat === 'Odontologi' && !settings.enabledFeatures.dental) return false;
-      if (cat === 'KB' && !settings.enabledFeatures.kb) return false;
-      if (cat === 'Anak' && !settings.enabledFeatures.immunization) return false;
+      if (cat === 'Bumil' && !isFeatureEnabled('anc')) return false;
+      if (cat === 'Odontologi' && !isFeatureEnabled('dental')) return false;
+      if (cat === 'KB' && !isFeatureEnabled('kb')) return false;
+      if (cat === 'Anak' && !isFeatureEnabled('immunization')) return false;
       return true;
     });
-  }, [settings]);
+  }, [isFeatureEnabled]);
 
   const watchCategory = watch("examCategory");
   const watchHpht = watch("hpht");
@@ -377,6 +446,11 @@ function ExaminationForm() {
         if (data) {
           setPatient(data as Patient);
           setValue("namaSuami", (data as any).namaSuami || "");
+          
+          if (!examIdParam && !dateParam && (data as any).keluhan) {
+             setValue("keluhanUtama", (data as any).keluhan);
+          }
+
           if ((data as any).allergies) {
             setAllergyList(
               (data as any).allergies
@@ -416,18 +490,8 @@ function ExaminationForm() {
       }
     };
 
-    const fetchSettings = async () => {
-      try {
-        const data = await api.get('/settings');
-        setSettings(data);
-      } catch (e) {
-        console.error("Gagal memuat pengaturan:", e);
-      }
-    };
-
     fetchHistory();
     fetchMedicines();
-    fetchSettings();
   }, [patientId, user]);
 
   useEffect(() => {
@@ -470,15 +534,27 @@ function ExaminationForm() {
         quantity: 1,
         unit: medicine.unit,
         aturanMinum: "",
+        signa: "3 x 1",
+        aturanPakai: "Sesudah makan (p.c)",
       },
     ]);
   };
 
-  const handleMedicineRuleChange = (medicineId: string, aturanMinum: string) => {
+  const handleMedicineRuleChange = (medicineId: string, value: string, field: 'signa' | 'aturanPakai' | 'aturanMinum' = 'aturanMinum') => {
     setSelectedMedicines((prev) =>
       prev.map((item) =>
         item.medicineId === medicineId
-          ? { ...item, aturanMinum }
+          ? { ...item, [field]: value }
+          : item,
+      ),
+    );
+  };
+
+  const handleMedicineQuantityChange = (medicineId: string, quantity: number) => {
+    setSelectedMedicines((prev) =>
+      prev.map((item) =>
+        item.medicineId === medicineId
+          ? { ...item, quantity: quantity }
           : item,
       ),
     );
@@ -585,6 +661,37 @@ function ExaminationForm() {
     setValue("asamUrat", ext.asamUrat || "");
     setValue("kolesterol", ext.kolesterol || "");
     setValue("hb", ext.hb || "");
+    setValue("labResultImages", Array.isArray(ext.labResultImages) ? ext.labResultImages : (ext.labResultImage ? [ext.labResultImage] : []));
+
+    // Eye Data
+    setValue("tod", ext.tod || "");
+    setValue("tos", ext.tos || "");
+    setValue("visusVOD", ext.visusVOD || "");
+    setValue("visusVOS", ext.visusVOS || "");
+    setValue("pemeriksaanMataInternal", ext.pemeriksaanMataInternal || "");
+    setValue("eyePalpebra", ext.eyePalpebra || "");
+    setValue("eyeConjunctiva", ext.eyeConjunctiva || "");
+    setValue("eyeSclera", ext.eyeSclera || "");
+    setValue("eyeCornea", ext.eyeCornea || "");
+    setValue("eyeBMD", ext.eyeBMD || "");
+    setValue("eyeIrisPupil", ext.eyeIrisPupil || "");
+    setValue("eyeLens", ext.eyeLens || "");
+    setValue("eyeFundus", ext.eyeFundus || "");
+    setValue("showEyeExam", !!(ext.showEyeExam || ext.tod || ext.tos || ext.visusVOD || ext.visusVOS || ext.pemeriksaanMataInternal));
+
+    // Physical Exam Systems
+    setValue("showPhysicHead", Boolean(ext.showPhysicHead));
+    setValue("showPhysicThorax", Boolean(ext.showPhysicThorax));
+    setValue("showPhysicAbdomen", Boolean(ext.showPhysicAbdomen));
+    setValue("showPhysicExtremities", Boolean(ext.showPhysicExtremities));
+    setValue("showPhysicSkin", Boolean(ext.showPhysicSkin));
+    setValue("showPhysicNeurology", Boolean(ext.showPhysicNeurology));
+    setValue("physicHead", ext.physicHead || "");
+    setValue("physicThorax", ext.physicThorax || "");
+    setValue("physicAbdomen", ext.physicAbdomen || "");
+    setValue("physicExtremities", ext.physicExtremities || "");
+    setValue("physicSkin", ext.physicSkin || "");
+    setValue("physicNeurology", ext.physicNeurology || "");
 
     setOdontogram(normalizeOdontogram(ext.odontogram));
     const biayaRaw = exam.biaya ? String(exam.biaya) : "";
@@ -615,8 +722,10 @@ function ExaminationForm() {
     setIsLoading(true);
     if (!user || !patient) return;
     const now = new Date().toISOString();
+    // Declared outside try so it's accessible in the catch block (for forceSave retry)
+    let examinationData: any = null;
     try {
-      const examinationData: any = {
+      examinationData = {
         patientId: patient.id,
         patientName: patient.name,
         patientRm: patient.rm,
@@ -699,6 +808,37 @@ function ExaminationForm() {
           asamUrat: data.asamUrat,
           kolesterol: data.kolesterol,
           hb: data.hb,
+          labResultImages: data.labResultImages || [],
+
+          // Eye Data
+          tod: data.tod,
+          tos: data.tos,
+          visusVOD: data.visusVOD,
+          visusVOS: data.visusVOS,
+          pemeriksaanMataInternal: data.pemeriksaanMataInternal,
+          // Physical Exam Systems
+          showPhysicHead: data.showPhysicHead,
+          showPhysicThorax: data.showPhysicThorax,
+          showPhysicAbdomen: data.showPhysicAbdomen,
+          showPhysicExtremities: data.showPhysicExtremities,
+          showPhysicSkin: data.showPhysicSkin,
+          showPhysicNeurology: data.showPhysicNeurology,
+          physicHead: data.physicHead,
+          physicThorax: data.physicThorax,
+          physicAbdomen: data.physicAbdomen,
+          physicExtremities: data.physicExtremities,
+          physicSkin: data.physicSkin,
+          physicNeurology: data.physicNeurology,
+
+          // Eye Expanded Data
+          eyePalpebra: data.eyePalpebra,
+          eyeConjunctiva: data.eyeConjunctiva,
+          eyeSclera: data.eyeSclera,
+          eyeCornea: data.eyeCornea,
+          eyeBMD: data.eyeBMD,
+          eyeIrisPupil: data.eyeIrisPupil,
+          eyeLens: data.eyeLens,
+          eyeFundus: data.eyeFundus,
         }),
         updatedAt: now,
         updatedBy: user.uid,
@@ -723,7 +863,7 @@ function ExaminationForm() {
 
       if (editingExamId) {
         await api.put(`/examinations/${editingExamId}`, examinationData);
-        toast.success(`Berhasil diperbarui.`);
+        toast.success(`Berhasil diperbarui.`, { id: 'exam-success' });
         handleCancelEdit();
       } else {
         examinationData.clinicId = user.uid;
@@ -750,11 +890,36 @@ function ExaminationForm() {
 
         toast.success(
           `${isDentalClinic ? "Pelayanan gigi" : "Pemeriksaan"} berhasil disimpan.`,
+          { id: 'exam-success' }
         );
         navigate(`/pasien/${patient.id}`);
       }
     } catch (error) {
-      toast.error("Gagal menyimpan data.");
+      if (error instanceof DuplicateExaminationError) {
+        // This is a recoverable situation — ask the doctor to confirm
+        const confirmed = window.confirm(
+          `⚠️ Peringatan Duplikasi\n\nPasien ini sudah diperiksa dalam beberapa menit terakhir.\n\nApakah Anda yakin ingin menyimpan pemeriksaan baru ini?`
+        );
+        if (confirmed) {
+          try {
+            setIsLoading(true);
+            examinationData.forceSave = true;
+            await api.post("/examinations", examinationData);
+            try {
+              await api.put(`/patients/${patient.id}`, { poli: "Selesai", updatedAt: new Date().toISOString() });
+              broadcastPatientQueueUpdate({ action: 'dequeue', patientId: patient.id, source: 'examination-form-complete' });
+            } catch (e) { /* ignore queue update errors */ }
+            toast.success(`Pemeriksaan berhasil disimpan (dikonfirmasi).`, { id: 'exam-success' });
+            navigate(`/pasien/${patient.id}`);
+          } catch (retryErr) {
+            toast.error("Gagal menyimpan data setelah konfirmasi.");
+          } finally {
+            setIsLoading(false);
+          }
+        }
+      } else {
+        toast.error("Gagal menyimpan data.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -790,38 +955,38 @@ function ExaminationForm() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
+        <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-900 dark:border-gray-500">
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+            <p className="text-[10px] font-black text-gray-900 dark:text-gray-300 uppercase tracking-widest">
               Nama Pasien
             </p>
-            <p className="font-bold text-gray-900 dark:text-white">
+            <p className="font-black text-gray-900 dark:text-white uppercase">
               {patient.name}
             </p>
           </div>
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+            <p className="text-[10px] font-black text-gray-900 dark:text-gray-300 uppercase tracking-widest">
               Umur / Tgl Lahir
             </p>
-            <p className="font-bold text-gray-900 dark:text-white">
+            <p className="font-black text-gray-900 dark:text-white uppercase">
               {patient.ageDisplay}
             </p>
           </div>
-          <div className="md:col-span-1 border-l border-gray-200 dark:border-gray-700 md:pl-4">
-            <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">
+          <div className="md:col-span-1 border-l-2 border-gray-900 dark:border-gray-500 md:pl-4">
+            <p className="text-[10px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest">
               Alergi Pasien
             </p>
             <p
-              className={`font-black text-xs ${patient.allergies ? "text-red-600 animate-pulse" : "text-gray-400"}`}
+              className={`font-black text-xs ${patient.allergies ? "text-red-700 animate-pulse" : "text-gray-900 dark:text-gray-400"}`}
             >
               {patient.allergies || "TIDAK ADA"}
             </p>
           </div>
-          <div className="md:col-span-1 border-l border-gray-200 dark:border-gray-700 md:pl-4">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+          <div className="md:col-span-1 border-l-2 border-gray-900 dark:border-gray-500 md:pl-4">
+            <p className="text-[10px] font-black text-gray-900 dark:text-gray-300 uppercase tracking-widest">
               Alamat
             </p>
-            <p className="font-medium text-gray-700 dark:text-gray-300 text-xs line-clamp-1">
+            <p className="font-black text-gray-900 dark:text-gray-200 text-xs line-clamp-1 uppercase">
               {patient.address}
             </p>
           </div>
@@ -920,7 +1085,7 @@ function ExaminationForm() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") { e.preventDefault(); handleAddAllergy(); }
               }}
-              className="w-full sm:flex-1 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-red-200 dark:border-red-900/30 rounded-xl focus:ring-4 focus:ring-red-100 focus:border-red-500 outline-none text-sm font-bold text-red-700 dark:text-red-400"
+              className="w-full sm:flex-1 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-red-600 dark:border-red-500 rounded-xl focus:ring-4 focus:ring-red-100 outline-none text-sm font-black text-red-700 dark:text-red-400 uppercase"
               placeholder="Ketik alergi (contoh: Amoxicillin)..."
             />
             <button
@@ -961,8 +1126,13 @@ function ExaminationForm() {
           setOdontogram={setOdontogram}
         />
 
-        <LabSection
-          register={register}
+        <LabSection 
+          register={register} 
+          setValue={setValue}
+          watch={watch}
+          showEyeExam={watch("showEyeExam")}
+          canUpload={user?.features?.lab_upload}
+          history={patientHistory}
         />
 
         <SpecialtySection
@@ -972,23 +1142,26 @@ function ExaminationForm() {
           category={watchCategory}
         />
 
-        <MedicineSection
-          selectedMedicines={selectedMedicines}
-          onRemove={(id) => setSelectedMedicines(prev => prev.filter(m => m.medicineId !== id))}
-          onRuleChange={handleMedicineRuleChange}
-          onOpenSelector={() => setIsModalOpen(true)}
-          biayaDisplay={biayaDisplay}
-          onBiayaChange={handleBiayaChange}
-          onBlurBiaya={() => setBiayaDisplay(formatBiayaDisplay(biayaDisplay))}
-          isDentalClinic={isDentalClinic}
-        />
+        {user?.features?.medicines !== false && (
+          <MedicineSection
+            selectedMedicines={selectedMedicines}
+            onRemove={(id) => setSelectedMedicines(prev => prev.filter(m => m.medicineId !== id))}
+            onRuleChange={handleMedicineRuleChange}
+            onQuantityChange={handleMedicineQuantityChange}
+            onOpenSelector={() => setIsModalOpen(true)}
+            biayaDisplay={biayaDisplay}
+            onBiayaChange={handleBiayaChange}
+            onBlurBiaya={() => setBiayaDisplay(formatBiayaDisplay(biayaDisplay))}
+            isDentalClinic={isDentalClinic}
+          />
+        )}
 
         {/* --- FORM FOOTER / SUBMIT --- */}
-        <div className="flex items-center justify-between pt-8 border-t border-gray-100 dark:border-gray-800">
+        <div className="flex items-center justify-end gap-4 pt-8 border-t border-gray-100 dark:border-gray-800">
           <button
             type="button"
             onClick={() => navigate("/pemeriksaan")}
-            className="text-sm font-black text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors uppercase tracking-[0.2em]"
+            className="px-8 py-4 text-sm font-black text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors border-2 border-gray-900 dark:border-gray-500 rounded-2xl uppercase tracking-[0.2em]"
           >
             Batal
           </button>

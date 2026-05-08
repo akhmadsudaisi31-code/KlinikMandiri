@@ -9,6 +9,12 @@
 			"database_name": "klinik-db",
 			"database_id": "6ac0bc4c-50cc-4600-b230-ae967d238a5f"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "LAB_RESULTS",
+			"bucket_name": "klinik-lab-results"
+		}
 	]
 	// "compatibility_flags": [
 	//   "nodejs_compat"

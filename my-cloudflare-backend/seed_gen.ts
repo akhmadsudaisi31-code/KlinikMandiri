@@ -9,7 +9,8 @@ async function seed() {
 ('demo-bidan-clinic', 'Demo Bidan', 'demo.bidan@klinikmandiri.app', '${hash}', 'active', 0, 'Bidan'),
 ('demo-perawat-clinic', 'Demo Perawat', 'demo.perawat@klinikmandiri.app', '${hash}', 'active', 0, 'Perawat'),
 ('demo-dokter-clinic', 'Demo Dokter', 'demo.dokter@klinikmandiri.app', '${hash}', 'active', 0, 'Dokter'),
-('demo-dokter-gigi-clinic', 'Demo Dokter Gigi', 'demo.drg@klinikmandiri.app', '${hash}', 'active', 0, 'Dokter');`);
+('demo-dokter-gigi-clinic', 'Demo Dokter Gigi', 'demo.drg@klinikmandiri.app', '${hash}', 'active', 0, 'Dokter Gigi'),
+('demo-tgm-clinic', 'Demo Terapis Gigi', 'demo.tgm@klinikmandiri.app', '${hash}', 'active', 0, 'Terapis Gigi');`);
     
     console.log(`INSERT INTO clinics (id, name, email, password, status, isAdmin) VALUES 
 ('admin-1', 'System Admin', 'admin@klinikmandiri.app', '${hash}', 'active', 1);`);

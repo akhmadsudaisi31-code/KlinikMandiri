@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Examination } from '../types';
-import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, startOfYear, endOfYear, getDate, getMonth, getHours } from 'date-fns';
+import { format } from 'date-fns';
 import { formatRupiah } from '../utils/format';
 import toast from 'react-hot-toast';
 import { id as localeId } from 'date-fns/locale';
@@ -88,20 +88,24 @@ function Reports() {
     setLoading(true);
     setCurrentPage(1); // Reset page on new fetch
 
-    // Parse date as local time (WIB assumed for user)
-    const dateObj = new Date(selectedDate + 'T00:00:00');
+    // Parse date as WIB explicitly using +07:00 offset so month/year calculations
+    // are timezone-safe regardless of the user's OS or browser clock setting.
+    const dateObj = new Date(selectedDate + 'T00:00:00+07:00');
 
     let start: Date, end: Date;
 
     if (reportType === 'daily') {
-      start = startOfDay(dateObj);
-      end = endOfDay(dateObj);
+      // WIB day starts at 00:00:00 WIB, which is -7 hours from UTC.
+      // 2026-04-16T00:00:00 in WIB is 2026-04-15T17:00:00Z
+      start = new Date(`${selectedDate}T00:00:00+07:00`);
+      end = new Date(`${selectedDate}T23:59:59.999+07:00`);
     } else if (reportType === 'monthly') {
-      start = startOfMonth(dateObj);
-      end = endOfMonth(dateObj);
+      start = new Date(`${selectedDate.slice(0, 7)}-01T00:00:00+07:00`);
+      const lastDay = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate();
+      end = new Date(`${selectedDate.slice(0, 7)}-${lastDay}T23:59:59.999+07:00`);
     } else {
-      start = startOfYear(dateObj);
-      end = endOfYear(dateObj);
+      start = new Date(`${selectedDate.slice(0, 4)}-01-01T00:00:00+07:00`);
+      end = new Date(`${selectedDate.slice(0, 4)}-12-31T23:59:59.999+07:00`);
     }
 
     if (!user) return;
@@ -325,9 +329,12 @@ function Reports() {
       const dayCounts = new Array(daysInMonth).fill(0);
 
       examinations.forEach(v => {
-        const d = v.createdAt ? new Date(v.createdAt) : new Date();
-        const day = getDate(d);
-        dayCounts[day - 1]++;
+        let day = new Date().getDate();
+        if (v.createdAt) {
+          const dtStr = formatWibSafe(v.createdAt, 'dd');
+          if (dtStr !== '-') day = parseInt(dtStr, 10);
+        }
+        if (!isNaN(day) && day >= 1 && day <= daysInMonth) dayCounts[day - 1]++;
       });
       trendValues = dayCounts;
 
@@ -338,9 +345,12 @@ function Reports() {
       const monthCounts = new Array(12).fill(0);
 
       examinations.forEach(v => {
-        const d = v.createdAt ? new Date(v.createdAt) : new Date();
-        const m = getMonth(d);
-        monthCounts[m]++;
+        let m = new Date().getMonth();
+        if (v.createdAt) {
+          const dtStr = formatWibSafe(v.createdAt, 'MM');
+          if (dtStr !== '-') m = parseInt(dtStr, 10) - 1; // 0 to 11
+        }
+        if (!isNaN(m) && m >= 0 && m < 12) monthCounts[m]++;
       });
       trendValues = monthCounts;
     } else {
@@ -348,9 +358,12 @@ function Reports() {
       trendLabels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
       const hourCounts = new Array(24).fill(0);
       examinations.forEach(v => {
-        const d = v.createdAt ? new Date(v.createdAt) : new Date();
-        const h = getHours(d);
-        if (h < 24) hourCounts[h]++;
+        let h = new Date().getHours();
+        if (v.createdAt) {
+          const dtStr = formatWibSafe(v.createdAt, 'HH');
+          if (dtStr !== '-') h = parseInt(dtStr, 10);
+        }
+        if (!isNaN(h) && h >= 0 && h < 24) hourCounts[h]++;
       });
       trendValues = hourCounts;
     }

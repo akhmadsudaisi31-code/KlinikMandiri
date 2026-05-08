@@ -3,6 +3,7 @@ import Header from './components/Header';
 import BottomNav from './components/BottomNav';
 import SubscriptionExpired from './pages/SubscriptionExpired';
 import { differenceInDays } from 'date-fns';
+import { useErrorLogger } from './hooks/useErrorLogger';
 
 // Props untuk AuthProvider (App)
 interface AppProps {
@@ -15,6 +16,7 @@ interface AppProps {
  */
 function App({ children }: AppProps) {
   const { user, loading } = useAuth();
+  useErrorLogger(); // Tangkap semua error global & kirim ke Cloudflare D1
 
   // Tampilkan loading screen sederhana selagi cek auth
   if (loading) {

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
+import { getWibCurrentDateString, formatWibSafe } from '../utils/date';
 import { 
     Patient, 
     ClinicSettings
@@ -15,12 +16,6 @@ import { getExaminationUnitLabel, getExaminationQueueLabel } from '../utils/clin
 import SickLeaveCertificate from '../components/SickLeaveCertificate';
 
 const OPTIMISTIC_QUEUE_HIDE_MS = 3000;
-
-function parseSelectedDate(rawDate: string | null): Date {
-    if (!rawDate) return new Date();
-    const parsedDate = new Date(`${rawDate}T00:00:00`);
-    return Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
-}
 
 function ExaminationList() {
     const [patients, setPatients] = useState<Patient[]>([]);
@@ -49,8 +44,8 @@ function ExaminationList() {
         diagnosis: string;
     } | null>(null);
 
-    const selectedDateValue = searchParams.get('tanggal') || format(new Date(), 'yyyy-MM-dd');
-    const selectedDate = useMemo(() => parseSelectedDate(selectedDateValue), [selectedDateValue]);
+    const selectedDateValue = searchParams.get('tanggal') || getWibCurrentDateString();
+    const selectedDate = selectedDateValue;
     
     const examinationUnitLabel = useMemo(() => getExaminationUnitLabel(user?.clinicType), [user?.clinicType]);
     const examinationQueueLabel = useMemo(() => getExaminationQueueLabel(user?.clinicType), [user?.clinicType]);
@@ -61,20 +56,11 @@ function ExaminationList() {
         if (showLoading) setLoading(true);
 
         try {
-            const start = startOfDay(selectedDate).getTime();
-            const end = endOfDay(selectedDate).getTime();
             const data = await api.get('/patients');
             const allPatients = Array.isArray(data) ? data : [];
             const now = Date.now();
 
-            setPatients(allPatients.filter(p => {
-                const hiddenUntil = optimisticallyHiddenPatientIds[p.id];
-                if (hiddenUntil && hiddenUntil > now) return false;
-                if (p.poli !== "Pemeriksaan" && p.poli !== "Selesai") return false;
-                if (!p.updatedAt) return true;
-                const pTime = new Date(p.updatedAt).getTime();
-                return pTime >= start && pTime <= end;
-            }));
+            setPatients(allPatients);
 
             // Auto-cleanup expired optimistic IDs
             setOptimisticallyHiddenPatientIds(prev => {
@@ -89,12 +75,14 @@ function ExaminationList() {
         } finally {
             if (showLoading) setLoading(false);
         }
-    }, [user, selectedDate, optimisticallyHiddenPatientIds]);
+    }, [user]);
 
     const fetchExaminations = useCallback(async () => {
         if (!user) return;
-        const start = startOfDay(selectedDate).toISOString();
-        const end = endOfDay(selectedDate).toISOString();
+        // Konversi ke UTC ISO — SQLite membandingkan string karakter per karakter,
+        // jadi boundary HARUS dalam format yang sama dengan createdAt di DB ('...Z')
+        const start = new Date(`${selectedDate}T00:00:00+07:00`).toISOString();
+        const end = new Date(`${selectedDate}T23:59:59.999+07:00`).toISOString();
         try {
             const exams = await api.get(`/examinations?startDate=${start}&endDate=${end}`);
             const latestByPatient: Record<string, string> = {};
@@ -167,7 +155,7 @@ function ExaminationList() {
                     if (detail.patient!.poli !== 'Pemeriksaan') return prev;
                     const next = prev.filter(p => p.id !== detail.patient!.id);
                     next.push(detail.patient!);
-                    next.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+                    next.sort((a, b) => new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime());
                     return next;
                 });
                 return;
@@ -245,7 +233,7 @@ function ExaminationList() {
                     poli: 'Pendaftaran',
                     updatedAt: new Date().toISOString()
                 });
-                toast.success(`${patientName} dikembalikan ke antrian pendaftaran`);
+                toast.success(`${patientName} dikembalikan ke antrian pendaftaran`, { id: 'queue-return' });
             } catch (e) {
                 console.error(e);
                 toast.error("Gagal memproses permintaan");
@@ -263,8 +251,8 @@ function ExaminationList() {
             const latestSettings = await api.get('/settings');
             setSettings(latestSettings);
             
-            const start = format(new Date(), 'yyyy-MM-dd');
-            const end = format(new Date(), 'yyyy-MM-dd');
+            const start = getWibCurrentDateString();
+            const end = getWibCurrentDateString();
             
             setPrintData({
                 patient,
@@ -283,7 +271,36 @@ function ExaminationList() {
         }
     };
 
-    const filteredPatients = patients.filter(p => {
+    const activePatients = useMemo(() => {
+        const now = Date.now();
+        const isToday = selectedDate === getWibCurrentDateString();
+
+        return patients.filter(p => {
+            const hiddenUntil = optimisticallyHiddenPatientIds[p.id];
+            if (hiddenUntil && hiddenUntil > now) return false;
+            
+            // Jika sedang antri, hanya tampilkan jika melihat tanggal HARI INI
+            if (p.poli === "Pemeriksaan") {
+                return isToday;
+            }
+
+            // Jika sudah selesai atau lainnya, tampilkan hanya jika ada record pemeriksaan di tanggal terpilih
+            if (p.poli === "Selesai" || p.poli === "Selesai & Obat" || p.poli === "Pendaftaran") {
+                return !!latestExaminationAt[p.id];
+            }
+
+            return false;
+        }).sort((a, b) => {
+            // Urutan antrian: yang paling lama menunggu di atas (berdasarkan updatedAt)
+            if (a.poli === 'Pemeriksaan' && b.poli === 'Pemeriksaan') {
+                return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
+            }
+            // Untuk yang selesai: yang paling baru diperiksa di atas
+            return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+        });
+    }, [patients, optimisticallyHiddenPatientIds, latestExaminationAt, selectedDate]);
+
+    const filteredPatients = activePatients.filter(p => {
         const query = searchTerm.toLowerCase();
         const matchesSearch = 
             p.name.toLowerCase().includes(query) || 
@@ -395,7 +412,7 @@ function ExaminationList() {
                                                             </span>
                                                             {latestExaminationAt[patient.id] && (
                                                                 <span className="text-[10px] text-gray-400 mt-1">
-                                                                    {format(new Date(latestExaminationAt[patient.id]), 'HH:mm')}
+                                                                    {formatWibSafe(latestExaminationAt[patient.id], 'HH:mm')}
                                                                 </span>
                                                             )}
                                                         </div>
@@ -431,6 +448,26 @@ function ExaminationList() {
                                                                 title="Cetak Surat Sakit"
                                                             >
                                                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const examId = latestExamIdByPatient[patient.id];
+                                                                    if (!examId) return;
+                                                                    if (window.confirm(`Hapus rekam medis ${patient.name} untuk hari ini?`)) {
+                                                                        api.delete(`/examinations/${examId}`)
+                                                                            .then(() => {
+                                                                                toast.success("Rekam medis berhasil dihapus");
+                                                                                fetchExaminations();
+                                                                            })
+                                                                            .catch(e => toast.error("Gagal menghapus rekam medis"));
+                                                                    }
+                                                                }}
+                                                                className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+                                                                title="Hapus Pemeriksaan"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
                                                             </button>
                                                             <button 
                                                                 onClick={() => {
@@ -489,12 +526,12 @@ function ExaminationList() {
                         </div>
                         <div className="space-y-4">
                             <div className="flex justify-between items-end">
-                                <span className="text-primary-100 text-sm italic italic">Menunggu</span>
-                                <span className="text-3xl font-black">{patients.filter(p => p.poli === 'Pemeriksaan').length}</span>
+                                <span className="text-primary-100 text-sm italic">Menunggu</span>
+                                <span className="text-3xl font-black">{activePatients.filter(p => p.poli === 'Pemeriksaan').length}</span>
                             </div>
                             <div className="flex justify-between items-end">
                                 <span className="text-primary-100 text-sm italic">Selesai</span>
-                                <span className="text-3xl font-black">{filteredPatients.filter(p => p.poli === 'Selesai').length}</span>
+                                <span className="text-3xl font-black">{activePatients.filter(p => p.poli === 'Selesai' || p.poli === 'Selesai & Obat').length}</span>
                             </div>
                         </div>
                     </div>
@@ -507,7 +544,7 @@ function ExaminationList() {
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                 </div>
                                 <div>
-                                    <div className="text-sm font-bold text-gray-900 dark:text-white">{format(selectedDate, 'dd MMMM yyyy', { locale: localeId })}</div>
+                                    <div className="text-sm font-bold text-gray-900 dark:text-white">{format(new Date(selectedDate), 'dd MMMM yyyy', { locale: localeId })}</div>
                                     <div className="text-xs text-gray-500">Tanggal Operasional</div>
                                 </div>
                             </div>
@@ -519,7 +556,7 @@ function ExaminationList() {
             {/* Modal Cetak Surat Sakit */}
             {isPrintModalOpen && printData && settings && (
                 <div key="sks-print-modal-overlay" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 no-print">
-                    <div key="sks-modal-content" className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+                    <div key="sks-modal-content" className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden border-2 border-gray-900 dark:border-gray-700">
                         <div className="px-6 py-4 border-b border-gray-100 dark:border-dark-border flex justify-between items-center bg-white dark:bg-dark-surface">
                             <h3 className="text-xl font-bold text-gray-900 dark:text-white">Cetak Surat Keterangan Sakit</h3>
                             <button onClick={() => setIsPrintModalOpen(false)} className="text-gray-400 hover:text-gray-500 transition-colors">
@@ -560,7 +597,7 @@ function ExaminationList() {
                                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Dari Tanggal</label>
                                         <input 
                                             type="date" 
-                                            className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                            className="w-full px-3 py-2 rounded-xl border-2 border-gray-900 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-sm font-black"
                                             value={printData.startDate}
                                             onChange={e => {
                                                 const start = new Date(e.target.value);
@@ -575,7 +612,7 @@ function ExaminationList() {
                                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Durasi (Hari)</label>
                                         <input 
                                             type="number" 
-                                            className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                            className="w-full px-3 py-2 rounded-xl border-2 border-gray-900 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-sm font-black"
                                             value={printData.days}
                                             onChange={e => {
                                                 const val = e.target.value;
@@ -597,7 +634,7 @@ function ExaminationList() {
                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic">Hingga Tanggal</label>
                                     <input 
                                         type="date" 
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm"
+                                        className="w-full px-3 py-2 rounded-xl border-2 border-gray-900 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm font-black"
                                         value={printData.endDate}
                                         readOnly
                                     />
@@ -607,7 +644,7 @@ function ExaminationList() {
                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic font-bold">Pekerjaan</label>
                                     <input
                                         type="text"
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                        className="w-full px-3 py-2 rounded-xl border-2 border-gray-900 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-sm font-black"
                                         value={printData.occupation}
                                         onChange={(e) => setPrintData({ ...printData, occupation: e.target.value })}
                                         placeholder="Pekerjaan pasien..."
@@ -618,7 +655,7 @@ function ExaminationList() {
                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider italic font-bold">Alamat Pasien</label>
                                     <textarea
                                         rows={2}
-                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm"
+                                        className="w-full px-3 py-2 rounded-xl border-2 border-gray-900 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-sm font-black"
                                         value={printData.address}
                                         onChange={(e) => setPrintData({ ...printData, address: e.target.value })}
                                         placeholder="Alamat lengkap pasien..."

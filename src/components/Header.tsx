@@ -11,6 +11,7 @@ import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import { subscribeDataSync } from '../utils/dataSync';
+import { useFeatures } from '../hooks/useFeatures';
 
 function formatValidUntil(validUntil?: string) {
   if (!validUntil) return 'Belum diatur';
@@ -27,6 +28,7 @@ function formatValidUntil(validUntil?: string) {
 
 function Header() {
   const { user, logout } = useAuth();
+  const { isFeatureEnabled } = useFeatures();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -218,31 +220,40 @@ function Header() {
                 <Link to="/" className={`px-4 py-2 rounded-lg transition-all ${isActive('/')}`}>
                   Dashboard
                 </Link>
-                {user.isAdmin === 1 ? (
+                {user.isAdmin === 1 && (
                   <Link to="/admin" className={`px-4 py-2 rounded-lg transition-all ${isActive('/admin')}`}>
                     Admin Panel
                   </Link>
-                ) : (
-                  <>
-                    <Link to="/pendaftaran" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pendaftaran')}`}>
-                      Pendaftaran
-                    </Link>
-                    <Link to="/pemeriksaan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pemeriksaan')}`}>
-                      Pemeriksaan
-                    </Link>
-                    <Link to="/obat" className={`px-4 py-2 rounded-lg transition-all ${isActive('/obat')}`}>
-                      Obat
-                    </Link>
-                    <Link to="/laporan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/laporan')}`}>
-                      Laporan
-                    </Link>
-                    <Link to="/sks" className={`px-4 py-2 rounded-lg transition-all ${isActive('/sks')}`}>
-                      Riwayat SKS
-                    </Link>
-                    <Link to="/settings" className={`px-4 py-2 rounded-lg transition-all ${isActive('/settings')}`}>
-                      Pengaturan
-                    </Link>
-                  </>
+                )}
+                {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'DOKTER' || user.role === 'PENDAFTARAN' || !user.role || user.isAdmin === 1) && (
+                  <Link to="/pendaftaran" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pendaftaran')}`}>
+                    Pendaftaran
+                  </Link>
+                )}
+                {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'DOKTER' || !user.role || user.isAdmin === 1) && (
+                  <Link to="/pemeriksaan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/pemeriksaan')}`}>
+                    Pemeriksaan
+                  </Link>
+                )}
+                {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'APOTEKER' || !user.role || user.isAdmin === 1) && (
+                  <Link to="/obat" className={`px-4 py-2 rounded-lg transition-all ${isActive('/obat')}`}>
+                    Obat
+                  </Link>
+                )}
+                {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'DOKTER' || !user.role || user.isAdmin === 1) && isFeatureEnabled('reports') && (
+                  <Link to="/laporan" className={`px-4 py-2 rounded-lg transition-all ${isActive('/laporan')}`}>
+                    Laporan
+                  </Link>
+                )}
+                {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || !user.role || user.isAdmin === 1) && (
+                  <Link to="/sks" className={`px-4 py-2 rounded-lg transition-all ${isActive('/sks')}`}>
+                    Riwayat SKS
+                  </Link>
+                )}
+                {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || !user.role || user.isAdmin === 1) && (
+                  <Link to="/settings" className={`px-4 py-2 rounded-lg transition-all ${isActive('/settings')}`}>
+                    Pengaturan
+                  </Link>
                 )}
               </div>
             )}
@@ -327,7 +338,7 @@ function Header() {
               Dashboard
             </Link>
             
-            {user.isAdmin === 1 ? (
+            {user.isAdmin === 1 && (
                 <Link
                 to="/admin"
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -335,52 +346,61 @@ function Header() {
               >
                 Admin Panel
               </Link>
-            ) : (
-                <>
-                    <Link
-                    to="/pendaftaran"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pendaftaran' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                    >
-                    Pendaftaran
-                    </Link>
-                    <Link
-                    to="/pemeriksaan"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pemeriksaan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                    >
-                    Pemeriksaan
-                    </Link>
-                    <Link
-                    to="/obat"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/obat' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                    >
-                    Obat
-                    </Link>
-                    <Link
-                    to="/laporan"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/laporan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                    >
-                    Laporan
-                    </Link>
-                    <Link
-                    to="/sks"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/sks' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                    >
-                    Riwayat SKS
-                    </Link>
-                    <Link
-                    to="/settings"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/settings' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                    >
-                    Pengaturan
-                    </Link>
-                </>
             )}
+                    {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'DOKTER' || user.role === 'PENDAFTARAN' || !user.role || user.isAdmin === 1) && (
+                      <Link
+                        to="/pendaftaran"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pendaftaran' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        Pendaftaran
+                      </Link>
+                    )}
+                    {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'DOKTER' || !user.role || user.isAdmin === 1) && (
+                      <Link
+                        to="/pemeriksaan"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/pemeriksaan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        Pemeriksaan
+                      </Link>
+                    )}
+                    {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'APOTEKER' || !user.role || user.isAdmin === 1) && (
+                      <Link
+                        to="/obat"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/obat' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        Obat
+                      </Link>
+                    )}
+                    {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || user.role === 'DOKTER' || !user.role || user.isAdmin === 1) && isFeatureEnabled('reports') && (
+                      <Link
+                        to="/laporan"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/laporan' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        Laporan
+                      </Link>
+                    )}
+                    {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || !user.role || user.isAdmin === 1) && (
+                      <Link
+                        to="/sks"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/sks' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        Riwayat SKS
+                      </Link>
+                    )}
+                    {(user.role === 'OWNER' || user.role === 'SUPER_ADMIN' || !user.role || user.isAdmin === 1) && (
+                      <Link
+                        to="/settings"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`block px-3 py-2 rounded-md text-base font-medium ${location.pathname === '/settings' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        Pengaturan
+                      </Link>
+                    )}
               <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2">
               <button
                 type="button"

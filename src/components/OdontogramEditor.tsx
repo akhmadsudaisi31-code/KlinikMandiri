@@ -25,9 +25,11 @@ const TOOTH_STROKE: Record<string, string> = {
 };
 
 function getToothFamily(toothNumber: number) {
+  const isChild = toothNumber > 50;
   const lastDigit = toothNumber % 10;
   if (lastDigit === 1 || lastDigit === 2) return "incisor";
   if (lastDigit === 3) return "canine";
+  if (isChild && (lastDigit === 4 || lastDigit === 5)) return "molar";
   if (lastDigit === 4 || lastDigit === 5) return "premolar";
   return "molar";
 }
@@ -199,8 +201,10 @@ export function OdontogramEditor({ teeth, onChange }: OdontogramEditorProps) {
     }
   }, [selectedToothNumber, teeth]);
 
-  const upperTeeth = teeth.slice(0, 16);
-  const lowerTeeth = teeth.slice(16);
+  const upperAdultTeeth = teeth.slice(0, 16);
+  const lowerAdultTeeth = teeth.slice(16, 32);
+  const upperChildTeeth = teeth.slice(32, 42);
+  const lowerChildTeeth = teeth.slice(42, 52);
   const selectedTooth = useMemo(
     () => teeth.find((tooth) => tooth.toothNumber === selectedToothNumber) ?? teeth[0],
     [selectedToothNumber, teeth],
@@ -228,25 +232,64 @@ export function OdontogramEditor({ teeth, onChange }: OdontogramEditorProps) {
   return (
     <div className="space-y-5">
       <div className="rounded-[2rem] border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="rounded-3xl border border-gray-100 bg-white px-2 py-5 md:px-4">
-          <div className="overflow-x-auto pb-2">
-            <ToothRow
-              teeth={upperTeeth}
-              isUpper={true}
-              selectedToothNumber={selectedToothNumber}
-              onSelect={setSelectedToothNumber}
-            />
-          </div>
+        {/* Single scrollable container for all rows — prevents misalignment */}
+        <div className="overflow-x-auto">
+          <div className="inline-block min-w-full">
 
-          <div className="my-3 border-t border-dashed border-gray-200" />
+            {/* Row 1: Upper Adult (18→28) — teeth point downward */}
+            <div className="flex justify-center pb-1">
+              <ToothRow
+                teeth={upperAdultTeeth}
+                isUpper={true}
+                selectedToothNumber={selectedToothNumber}
+                onSelect={setSelectedToothNumber}
+              />
+            </div>
 
-          <div className="overflow-x-auto pt-2">
-            <ToothRow
-              teeth={lowerTeeth}
-              isUpper={false}
-              selectedToothNumber={selectedToothNumber}
-              onSelect={setSelectedToothNumber}
-            />
+            {/* Row 2: Upper Child (55→65) — scaled smaller, flush to midline */}
+            {upperChildTeeth.length > 0 && (
+              <div className="flex justify-center">
+                <div className="transform scale-[0.82] origin-bottom -mb-2">
+                  <ToothRow
+                    teeth={upperChildTeeth}
+                    isUpper={true}
+                    selectedToothNumber={selectedToothNumber}
+                    onSelect={setSelectedToothNumber}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Midline Divider */}
+            <div className="relative my-2">
+              <div className="border-t-2 border-dashed border-gray-300" />
+              <span className="absolute left-1/2 -translate-x-1/2 -top-2.5 bg-white px-2 text-[9px] font-bold uppercase tracking-widest text-gray-400">Garis Tengah</span>
+            </div>
+
+            {/* Row 3: Lower Child (85→75) — scaled smaller, flush to midline */}
+            {lowerChildTeeth.length > 0 && (
+              <div className="flex justify-center">
+                <div className="transform scale-[0.82] origin-top -mt-2">
+                  <ToothRow
+                    teeth={lowerChildTeeth}
+                    isUpper={false}
+                    selectedToothNumber={selectedToothNumber}
+                    onSelect={setSelectedToothNumber}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Row 4: Lower Adult (48→38) — teeth point upward */}
+            <div className="flex justify-center pt-1">
+              <ToothRow
+                teeth={lowerAdultTeeth}
+                isUpper={false}
+                selectedToothNumber={selectedToothNumber}
+                onSelect={setSelectedToothNumber}
+              />
+            </div>
+
           </div>
         </div>
       </div>

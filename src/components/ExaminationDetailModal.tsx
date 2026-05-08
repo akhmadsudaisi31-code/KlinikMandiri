@@ -124,6 +124,14 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                         </div>
                                                     </>
                                                 )}
+                                                {(ext.visusVOD || ext.visusVOS) && (
+                                                    <>
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-gray-500 block mb-1">Visus (VOD/VOS)</span>
+                                                            <span className="font-bold text-gray-900 dark:text-gray-100">{ext.visusVOD || '-'} / {ext.visusVOS || '-'}</span>
+                                                        </div>
+                                                    </>
+                                                )}
                                             </div>
                                             
                                                 {ext.isPersalinan && (
@@ -214,14 +222,15 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                     O - Objective
                                                 </h4>
                                                 <div className="space-y-6 px-3">
-                                                    {/* Vital Signs Grid */}
-                                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                                    {/* Vital Signs */}
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                                         {[
                                                             { label: 'Tensi', val: data.tensi, unit: 'mmHg' },
                                                             { label: 'Nadi', val: data.nadi, unit: 'x/mnt' },
                                                             { label: 'Suhu', val: data.suhu, unit: '°C' },
                                                             { label: 'Resp', val: data.respirasi, unit: 'x/mnt' },
                                                             { label: 'BB', val: data.bb, unit: 'kg' },
+                                                            { label: 'TB', val: data.tb, unit: 'cm' },
                                                             { label: 'SPO2', val: data.spo2, unit: '%' },
                                                         ].map((v, i) => (
                                                             v.val && (
@@ -233,28 +242,133 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                         ))}
                                                     </div>
 
-                                                    {/* Lab Results */}
-                                                    {(ext.gds || ext.asamUrat || ext.kolesterol || ext.hb) && (
-                                                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/30">
-                                                            {[
-                                                                { label: 'Gula Darah', val: ext.gds, unit: 'mg/dL' },
-                                                                { label: 'Asam Urat', val: ext.asamUrat, unit: 'mg/dL' },
-                                                                { label: 'Kolesterol', val: ext.kolesterol, unit: 'mg/dL' },
-                                                                { label: 'HB', val: ext.hb, unit: 'g/dL' },
-                                                            ].map((v, i) => (
-                                                                v.val && (
-                                                                    <div key={i}>
-                                                                        <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-1 tracking-widest">{v.label}</p>
-                                                                        <p className="font-black text-gray-900 dark:text-white text-sm">{v.val} <span className="text-[10px] opacity-40 font-bold">{v.unit}</span></p>
+                                                    {/* Lab Results Section - More Robust Check */}
+                                                    {(() => {
+                                                        const gds = ext.gds || data.gds;
+                                                        const asamUrat = ext.asamUrat || data.asamUrat;
+                                                        const kolesterol = ext.kolesterol || data.kolesterol;
+                                                        const hb = ext.hb || data.hb;
+                                                        const labImages = Array.isArray(ext.labResultImages) ? ext.labResultImages : (ext.labResultImage || data.labResultImage ? [ext.labResultImage || data.labResultImage] : []);
+
+                                                        if (gds || asamUrat || kolesterol || hb || labImages.length > 0) {
+                                                            return (
+                                                                <div className="mt-6 space-y-4">
+                                                                    <div className="flex items-center gap-2 mb-2">
+                                                                        <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
+                                                                        <h4 className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">Hasil Laboratorium</h4>
                                                                     </div>
-                                                                )
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                    {data.pemeriksaanFisik && (
-                                                        <div>
-                                                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">{isDentalExam ? 'Temuan Klinis Ringkas' : 'Pemeriksaan Fisik'}</p>
-                                                            <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl">{data.pemeriksaanFisik}</p>
+                                                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-emerald-50/30 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/30">
+                                                                        {[
+                                                                            { label: 'Gula Darah', val: gds, unit: 'mg/dL' },
+                                                                            { label: 'Asam Urat', val: asamUrat, unit: 'mg/dL' },
+                                                                            { label: 'Kolesterol', val: kolesterol, unit: 'mg/dL' },
+                                                                            { label: 'HB', val: hb, unit: 'g/dL' },
+                                                                        ].map((v, i) => (
+                                                                            v.val && (
+                                                                                <div key={i}>
+                                                                                    <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-1 tracking-widest">{v.label}</p>
+                                                                                    <p className="font-black text-gray-900 dark:text-white text-sm">{v.val} <span className="text-[10px] opacity-40 font-bold">{v.unit}</span></p>
+                                                                                </div>
+                                                                            )
+                                                                        ))}
+                                                                    </div>
+                                                                    
+                                                                    {labImages.length > 0 && (
+                                                                        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-2 border-gray-900 dark:border-gray-700">
+                                                                            <p className="text-[10px] font-black text-gray-900 dark:text-gray-400 uppercase tracking-widest mb-3">Foto Hasil Laboratorium ({labImages.length})</p>
+                                                                            <div className="flex flex-wrap gap-3">
+                                                                                {labImages.map((img: string, idx: number) => (
+                                                                                    <a 
+                                                                                        key={idx}
+                                                                                        href={`${(import.meta.env.VITE_API_URL || '').replace(/\/api$/, '')}/api/upload/lab-result/${img}`} 
+                                                                                        target="_blank" 
+                                                                                        rel="noopener noreferrer"
+                                                                                        className="block group relative overflow-hidden rounded-xl border-2 border-gray-900 dark:border-gray-700 hover:border-emerald-500 transition-all w-24 h-24"
+                                                                                    >
+                                                                                        <img 
+                                                                                            src={`${(import.meta.env.VITE_API_URL || '').replace(/\/api$/, '')}/api/upload/lab-result/${img}`} 
+                                                                                            alt={`Hasil Lab ${idx + 1}`} 
+                                                                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                                                                        />
+                                                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                                            <span className="text-white font-black text-[8px] uppercase tracking-widest bg-emerald-600 px-2 py-1 rounded-full">LIHAT ↗</span>
+                                                                                        </div>
+                                                                                    </a>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+
+                                                    {/* SYSTEMATIC PHYSICAL EXAM */}
+                                                    <div className="space-y-4">
+                                                        {[
+                                                            { label: 'Kepala & Leher', val: ext.physicHead },
+                                                            { label: 'Thorax', val: ext.physicThorax },
+                                                            { label: 'Abdomen', val: ext.physicAbdomen },
+                                                            { label: 'Ekstremitas', val: ext.physicExtremities },
+                                                            { label: 'Kulit', val: ext.physicSkin },
+                                                            { label: 'Neurologi', val: ext.physicNeurology },
+                                                        ].filter(p => p.val).length > 0 && (
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                {[
+                                                                    { label: 'Kepala & Leher', val: ext.physicHead },
+                                                                    { label: 'Thorax', val: ext.physicThorax },
+                                                                    { label: 'Abdomen', val: ext.physicAbdomen },
+                                                                    { label: 'Ekstremitas', val: ext.physicExtremities },
+                                                                    { label: 'Kulit', val: ext.physicSkin },
+                                                                    { label: 'Neurologi', val: ext.physicNeurology },
+                                                                ].map((p, i) => p.val && (
+                                                                    <div key={i} className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
+                                                                        <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{p.label}</span>
+                                                                        <p className="text-sm text-gray-700 dark:text-gray-300">{p.val}</p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        
+                                                        {data.pemeriksaanFisik && !Object.keys(ext).some(k => k.startsWith('physic') && ext[k]) && (
+                                                            <div>
+                                                                <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">{isDentalExam ? 'Temuan Klinis Ringkas' : 'Pemeriksaan Fisik (Umum)'}</p>
+                                                                <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl">{data.pemeriksaanFisik}</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {ext.showEyeExam && (
+                                                        <div className="mt-4 p-4 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30 space-y-4">
+                                                            <p className="text-[11px] font-bold text-indigo-500 uppercase">Pemeriksaan Ophtalmologi</p>
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                                {[
+                                                                    { label: 'VOD', val: ext.visusVOD },
+                                                                    { label: 'VOS', val: ext.visusVOS },
+                                                                    { label: 'TOD', val: ext.tod },
+                                                                    { label: 'TOS', val: ext.tos },
+                                                                    { label: 'Palpebra', val: ext.eyePalpebra },
+                                                                    { label: 'Konjungtiva', val: ext.eyeConjunctiva },
+                                                                    { label: 'Sklera', val: ext.eyeSclera },
+                                                                    { label: 'Kornea', val: ext.eyeCornea },
+                                                                    { label: 'BMD', val: ext.eyeBMD },
+                                                                    { label: 'Iris/Pupil', val: ext.eyeIrisPupil },
+                                                                    { label: 'Lensa', val: ext.eyeLens },
+                                                                    { label: 'Fundus', val: ext.eyeFundus },
+                                                                ].map((p, i) => p.val && (
+                                                                    <div key={i}>
+                                                                        <span className="text-[9px] font-bold text-gray-400 uppercase block">{p.label}</span>
+                                                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{p.val}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            {ext.pemeriksaanMataInternal && (
+                                                                <div className="pt-2 border-t border-indigo-100/30">
+                                                                    <span className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Catatan Tambahan</span>
+                                                                    <p className="text-xs text-gray-700 dark:text-gray-300 italic">"{ext.pemeriksaanMataInternal}"</p>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
                                                     {isDentalExam && (
@@ -355,10 +469,13 @@ export function ExaminationDetailModal({ isOpen, onClose, data }: ExaminationDet
                                                                             <span className="text-xs font-black text-gray-900 dark:text-white uppercase">{med.medicineName}</span>
                                                                             <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 px-2 py-0.5 bg-purple-50 dark:bg-purple-900/30 rounded-lg whitespace-nowrap">{med.quantity} {med.unit}</span>
                                                                         </div>
-                                                                        {med.aturanMinum && (
+                                                                        {(med.signa || med.aturanPakai || med.aturanMinum) && (
                                                                             <div>
-                                                                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Aturan Minum</p>
-                                                                                <p className="text-sm text-gray-700 dark:text-gray-300">{med.aturanMinum}</p>
+                                                                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Aturan Pakai</p>
+                                                                                <p className="text-sm text-gray-700 dark:text-gray-300">
+                                                                                    {med.signa === "Lainnya" ? "" : (med.signa ? `${med.signa} - ` : '')}
+                                                                                    {med.aturanPakai === "Lainnya" ? med.aturanMinum : (med.aturanPakai || med.aturanMinum)}
+                                                                                </p>
                                                                             </div>
                                                                         )}
                                                                     </div>

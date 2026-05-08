@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../api';
 import { ClinicType } from '../types';
 import { getClinicThemeClass } from '../utils/clinic';
+import { setSentryUser, clearSentryUser } from '../utils/sentry';
+import toast from 'react-hot-toast';
 
 export interface User {
   uid: string;
@@ -12,6 +14,12 @@ export interface User {
   subscriptionPlan?: string;
   clinicType?: ClinicType;
   validUntil?: string;
+  role?: string;
+  subId?: string;
+  features?: { [key: string]: boolean };
+  maxPatients?: number;
+  maxUsers?: number;
+  tier?: string;
 }
 
 interface AuthContextType {
@@ -41,10 +49,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             isAdmin: data.isAdmin,
             subscriptionPlan: data.subscriptionPlan,
             clinicType: data.clinicType,
-            validUntil: data.validUntil
+            validUntil: data.validUntil,
+            role: data.role,
+            subId: data.subId,
+            tier: data.tier,
+            features: data.features || {},
+            maxPatients: data.maxPatients || 0,
+            maxUsers: data.maxUsers || 0
         };
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
+        setSentryUser({ uid: userData.uid, email: userData.email, name: userData.displayName || userData.email, clinicType: userData.clinicType });
     } catch (e) {
         console.error("Failed to refresh user", e);
     }
@@ -78,12 +93,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
+    setSentryUser({ uid: userData.uid, email: userData.email, name: userData.displayName || userData.email, clinicType: userData.clinicType });
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    clearSentryUser();
+    // Use deduplicated toast ID to prevent stacking
+    toast.success("Logout berhasil.", { id: 'auth-status' });
   };
 
   return (

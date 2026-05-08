@@ -18,7 +18,7 @@ export const SpecialtySection: React.FC<SpecialtySectionProps> = ({
 
   if (category === "Bumil") {
     return (
-      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border">
+      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border-2 border-gray-900 dark:border-gray-500">
         <div className="flex items-center gap-2 mb-6">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-pink-500" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
@@ -44,23 +44,23 @@ export const SpecialtySection: React.FC<SpecialtySectionProps> = ({
             { label: "Hasil USG", name: "usg", className: "md:col-span-2" },
           ].map((f) => (
             <div key={f.name} className={`${f.className || ""} space-y-1.5`}>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{f.label}</label>
+              <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">{f.label}</label>
               <div className="relative group">
                 <input
                   type={f.type || "text"}
                   {...register(f.name as any)}
                   readOnly={f.readOnly}
                   placeholder={f.placeholder}
-                  className={`w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl text-sm font-bold focus:border-primary-500 focus:ring-4 focus:ring-primary-100 dark:focus:ring-primary-900/20 transition-all ${f.readOnly ? "opacity-70 bg-gray-100" : ""}`}
+                  className={`w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-xl text-sm font-black text-gray-900 dark:text-white focus:border-primary-600 focus:ring-4 focus:ring-primary-100 dark:focus:ring-primary-900/20 transition-all ${f.readOnly ? "opacity-70 bg-gray-100" : ""}`}
                 />
-                {f.unit && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400 group-focus-within:text-primary-500">{f.unit}</span>}
+                {f.unit && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-900 dark:text-gray-300 group-focus-within:text-primary-600">{f.unit}</span>}
               </div>
             </div>
           ))}
         </div>
 
         {/* Persalinan Section */}
-        <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-800">
+        <div className="mt-8 pt-6 border-t-2 border-gray-900 dark:border-gray-500">
           <div className="flex items-center gap-3 mb-6">
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" {...register("isPersalinan")} className="sr-only peer" />
@@ -86,14 +86,14 @@ export const SpecialtySection: React.FC<SpecialtySectionProps> = ({
                 { label: "HB0", name: "hb0" },
               ].map((f) => (
                 <div key={f.name} className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{f.label}</label>
+                  <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">{f.label}</label>
                   <div className="relative group">
                     <input
                       type={f.type || "text"}
                       {...register(f.name as any)}
-                      className="w-full px-3 py-2.5 bg-blue-50/30 dark:bg-blue-900/10 border-2 border-blue-100 dark:border-blue-900/30 rounded-xl text-sm font-bold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
+                      className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-blue-600 dark:border-blue-500 rounded-xl text-sm font-black text-gray-900 dark:text-white focus:border-blue-700 focus:ring-4 focus:ring-blue-100 transition-all"
                     />
-                    {f.unit && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">{f.unit}</span>}
+                    {f.unit && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-900 dark:text-gray-300">{f.unit}</span>}
                   </div>
                 </div>
               ))}
@@ -106,7 +106,7 @@ export const SpecialtySection: React.FC<SpecialtySectionProps> = ({
 
   if (category === "KB") {
     return (
-      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border">
+      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border-2 border-gray-900 dark:border-gray-500">
         <div className="flex items-center gap-3 mb-6">
           <label className="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" {...register("isKb")} className="sr-only peer" />
@@ -124,12 +124,12 @@ export const SpecialtySection: React.FC<SpecialtySectionProps> = ({
               { label: "Keluhan KB", name: "keluhanKb", className: "md:col-span-3" },
             ].map((f) => (
               <div key={f.name} className={`${f.className || ""} space-y-1.5`}>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">{f.label}</label>
+                <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">{f.label}</label>
                 <input
                   type={f.type || "text"}
                   {...register(f.name as any)}
                   placeholder={f.placeholder}
-                  className="w-full px-3 py-2.5 bg-purple-50/30 dark:bg-purple-900/10 border-2 border-purple-100 dark:border-purple-900/30 rounded-xl text-sm font-bold focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-purple-600 dark:border-purple-500 rounded-xl text-sm font-black text-gray-900 dark:text-white focus:border-purple-700 focus:ring-4 focus:ring-purple-100 transition-all"
                 />
               </div>
             ))}
@@ -142,33 +142,33 @@ export const SpecialtySection: React.FC<SpecialtySectionProps> = ({
   // Common Specialty Fields (Lansia, Anak, etc)
   if (category === "Lansia" || category === "Anak") {
     return (
-      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border border-gray-100 dark:border-dark-border">
+      <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border-2 border-gray-900 dark:border-gray-500">
         <h2 className="font-black text-gray-900 dark:text-white uppercase tracking-tight mb-4">Data Spesifik {category}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {category === "Lansia" ? (
             <>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">ADL Score (Kemandirian)</label>
-                <input {...register("adlScore")} className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold" />
+                <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">ADL Score (Kemandirian)</label>
+                <input {...register("adlScore")} className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-xl font-black text-gray-900 dark:text-white" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Status Fungsional</label>
-                <input {...register("statusFungsional")} className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold" />
+                <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">Status Fungsional</label>
+                <input {...register("statusFungsional")} className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-xl font-black text-gray-900 dark:text-white" />
               </div>
             </>
           ) : (
             <>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Lingkar Kepala</label>
-                <input {...register("lingkarKepala")} className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold" />
+                <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">Lingkar Kepala</label>
+                <input {...register("lingkarKepala")} className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-xl font-black text-gray-900 dark:text-white" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Lingkar Lengan</label>
-                <input {...register("lingkarLengan")} className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold" />
+                <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">Lingkar Lengan</label>
+                <input {...register("lingkarLengan")} className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-xl font-black text-gray-900 dark:text-white" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Status Imunisasi</label>
-                <input {...register("statusImunisasi")} className="w-full px-3 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold" />
+                <label className="text-[10px] font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest pl-1">Status Imunisasi</label>
+                <input {...register("statusImunisasi")} className="w-full px-3 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-900 dark:border-gray-500 rounded-xl font-black text-gray-900 dark:text-white" />
               </div>
             </>
           )}

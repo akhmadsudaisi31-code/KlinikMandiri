@@ -8,7 +8,7 @@ export const CATEGORIES = [
   "Anak",
   "Bayi",
 ] as const;
-export const POLI_OPTIONS = ["Pendaftaran", "Pemeriksaan", "Selesai"] as const;
+export const POLI_OPTIONS = ["Pendaftaran", "Pemeriksaan", "Selesai", "Selesai & Obat"] as const;
 export const MEDICINE_UNITS = [
   "Tablet",
   "Kapsul",
@@ -17,6 +17,7 @@ export const MEDICINE_UNITS = [
   "Ampul",
   "Botol",
   "Strip",
+  "Puyer",
 ] as const;
 
 export type Gender = (typeof GENDERS)[number];
@@ -113,7 +114,9 @@ export interface MedicineItem {
   medicineName: string;
   quantity: number;
   unit: MedicineUnit;
-  aturanMinum?: string;
+  aturanMinum?: string; // Legacy field
+  signa?: string;       // New field (e.g. 3x1)
+  aturanPakai?: string; // New field (e.g. Sesudah makan)
 }
 
 // --- TIPE BARU UNTUK KUNJUNGAN ---
@@ -207,6 +210,7 @@ export interface Clinic {
   status: "pending" | "active" | "inactive";
   isAdmin: number; // 0: false, 1: true
   subscriptionPlan?: string;
+  tier?: string;
 }
 
 export interface ClinicSettings {
@@ -236,44 +240,62 @@ export const ALL_FEATURES = [
   "Backup Data Cloud Otomatis",
 ];
 
+export const TIERS = [
+  { 
+    id: 'BASIC', 
+    name: 'Basic', 
+    description: 'Solusi Dasar Digitalisasi',
+    features: ['Laporan Kunjungan', 'Manajemen Stok Obat', 'Pemeriksaan Umum (SOAP)', 'Database Pasien Unlimited']
+  },
+  { 
+    id: 'STANDARD', 
+    name: 'Standard', 
+    description: 'Layanan Klinik Lengkap',
+    features: ['Semua Fitur Basic', 'Layanan KIA (ANC, KB, Imunisasi)', 'Pemeriksaan Fisik Lengkap', 'Poli Mata & Gigi', 'Backup Data Manual', 'Multi-User Staff']
+  },
+  { 
+    id: 'PRO', 
+    name: 'Pro', 
+    description: 'Optimasi Klinik Modern',
+    features: ['Semua Fitur Standard', 'Cloud Backup Otomatis (Mingguan)', 'Upload Gambar Hasil Lab', 'Statistik Bisnis Lanjutan']
+  }
+] as const;
+
+export type TierId = (typeof TIERS)[number]['id'];
+
 export const SUBSCRIPTION_PLANS = [
-  {
-    id: "MONTHLY",
-    name: "Paket 1 Bulan",
-    price: 50000,
-    priceDoctor: 75000,
-    duration: "per bulan",
-    features: ALL_FEATURES,
-  },
-  {
-    id: "YEARLY",
-    name: "Paket 1 Tahun",
-    price: 600000,
-    priceDoctor: 850000,
-    duration: "per tahun",
-    features: ALL_FEATURES,
-  },
-  {
-    id: "2YEARS",
-    name: "Paket 2 Tahun",
-    price: 1150000,
-    priceDoctor: 1600000,
-    duration: "per 2 tahun",
-    features: ALL_FEATURES,
-  },
-  {
-    id: "LIFETIME",
-    name: "Paket Selamanya",
-    price: 3500000,
-    priceDoctor: 5000000,
-    duration: "selamanya",
-    features: ALL_FEATURES,
-  },
+  { id: "MONTHLY", name: "Paket 1 Bulan", duration: "per bulan" },
+  { id: "YEARLY", name: "Paket 1 Tahun", duration: "per tahun" },
+  { id: "2YEARS", name: "Paket 2 Tahun", duration: "per 2 tahun" },
+  { id: "LIFETIME", name: "Paket Selamanya", duration: "selamanya" },
 ];
 
-export const getPlanPrice = (planId: string, clinicType: ClinicType | string) => {
-  const plan = SUBSCRIPTION_PLANS.find(p => p.id === planId);
-  if (!plan) return 0;
-  const isDoctor = clinicType === 'Dokter' || clinicType === 'Dokter Gigi';
-  return isDoctor ? plan.priceDoctor : plan.price;
+export const TIER_PRICES: Record<TierId, { monthly: number, yearly: number, twoYears: number, lifetime: number }> = {
+  BASIC: {
+    monthly: 35000,
+    yearly: 350000,
+    twoYears: 650000,
+    lifetime: 2000000
+  },
+  STANDARD: {
+    monthly: 50000,
+    yearly: 600000,
+    twoYears: 1150000,
+    lifetime: 3500000
+  },
+  PRO: {
+    monthly: 100000,
+    yearly: 1000000,
+    twoYears: 1800000,
+    lifetime: 5000000
+  }
+};
+
+export const getPlanPrice = (planId: string, tierId: TierId = 'STANDARD') => {
+  const prices = TIER_PRICES[tierId];
+  if (planId === 'MONTHLY') return prices.monthly;
+  if (planId === 'YEARLY') return prices.yearly;
+  if (planId === '2YEARS') return prices.twoYears;
+  if (planId === 'LIFETIME') return prices.lifetime;
+  return 0;
 };

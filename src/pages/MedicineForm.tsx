@@ -56,7 +56,7 @@ function MedicineForm() {
                         navigate('/obat');
                     }
                 } catch (error) {
-                    toast.error('Gagal mengambil data obat.');
+                    toast.error('Mohon maaf, data obat tidak dapat ditemukan.');
                 } finally {
                     setIsFetchingData(false);
                 }
@@ -100,9 +100,9 @@ function MedicineForm() {
                 toast.success(`Obat ${data.name} berhasil ditambahkan.`);
                 navigate('/obat');
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving medicine:", error);
-            toast.error('Gagal menyimpan data obat. Cek koneksi atau izin.');
+            toast.error(error.message || 'Mohon maaf, terjadi kendala saat menyimpan data obat. Silakan periksa koneksi internet Anda atau coba beberapa saat lagi.');
         } finally {
             setIsLoading(false);
         }
@@ -124,10 +124,10 @@ function MedicineForm() {
 
                     {/* Nama Obat */}
                     <div>
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Obat</label>
+                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Nama Obat <span className="text-red-500">*</span></label>
                         <input
                             {...register('name')}
-                            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                            className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
                             placeholder="Masukkan nama obat"
                         />
                         {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
@@ -135,13 +135,13 @@ function MedicineForm() {
 
                     {/* Satuan */}
                     <div>
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Satuan</label>
+                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Satuan <span className="text-red-500">*</span></label>
                         <div className="relative">
                             <Controller
                                 name="unit"
                                 control={control}
                                 render={({ field }) => (
-                                    <select {...field} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 appearance-none bg-white">
+                                    <select {...field} className="w-full px-4 py-3 border border-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 appearance-none bg-white">
                                         <option value="">-- Pilih Satuan --</option>
                                         {MEDICINE_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                                     </select>

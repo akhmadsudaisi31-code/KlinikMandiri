@@ -246,3 +246,234 @@ File terkait:
 - `src/pages/DemoCatalog.tsx`
 - `scripts/build_icd_import.mjs`
 - `.codex_tmp/demo_seed.sql`
+
+---
+
+## 14. Sistem Multi-Akun & Sub-Akun (RBAC) *(Apr 2026)*
+
+- Menambahkan tabel `clinic_users` di D1 untuk mengelola staf per klinik.
+- Role yang tersedia: `OWNER`, `SUPER_ADMIN`, `DOKTER`, `APOTEKER`, `PENDAFTARAN`.
+- Global Admin (NPA) bisa impersonate akun client dan tetap punya akses penuh.
+- Endpoint `/auth/me` dan `/login` diperbarui untuk mendukung login staf dengan JWT impersonation.
+- Komponen `StaffManagementSection.tsx` dibuat untuk mengelola daftar staf di halaman Settings.
+- Header dan BottomNav menyesuaikan menu berdasarkan role pengguna.
+- Bug: saat session refresh, `role` dan `subId` hilang → diperbaiki di `AuthContext.refreshUser`.
+
+File terkait:
+- `my-cloudflare-backend/schema.sql` (tabel `clinic_users`)
+- `my-cloudflare-backend/src/routes/auth.ts`
+- `src/context/AuthContext.tsx`
+- `src/components/StaffManagementSection.tsx`
+- `src/components/Header.tsx`
+- `src/components/BottomNav.tsx`
+- `src/pages/Settings.tsx`
+
+---
+
+## 15. Kolom Keluhan di Pendaftaran Pasien *(Apr 2026)*
+
+- Menambahkan kolom `keluhan TEXT` di tabel `patients` (migration D1 lokal & remote).
+- Form pendaftaran (`PatientForm.tsx`) kini memiliki field "Keluhan Utama (Opsional)".
+- Saat Dokter membuka form pemeriksaan, field `keluhanUtama` (Subjective SOAP) otomatis terisi dari `keluhan` pasien jika ini adalah pemeriksaan baru.
+- Setelah pemeriksaan disimpan (`POST /examinations`), kolom `keluhan` di tabel pasien di-set ke `NULL` otomatis untuk mencegah data basi di kunjungan berikutnya (*Clean Visit Cycle*).
+
+File terkait:
+- `my-cloudflare-backend/schema.sql`
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/pages/PatientForm.tsx`
+- `src/pages/ExaminationForm.tsx`
+
+---
+
+## 16. Perbaikan Bug: Idempotency Guard Pemeriksaan *(Apr 2026)*
+
+**Insiden:** 15 April 2026 pukul 17:07–17:44 WIB, 1 akun dokter (traffic tertinggi) tidak bisa menyimpan pemeriksaan.
+
+**Penyebab:** Sistem idempotency guard `POST /examinations` memblokir simpan ulang selama **1 JAM** penuh, sehingga dokter yang ingin mengkoreksi data dalam sesi kerja yang sama selalu mendapat error 409.
+
+**Perbaikan:**
+1. Window idempotency diperkecil: **1 jam → 3 menit** (cukup cegah double-click, tidak mengganggu koreksi).
+2. Error 409 kini ditangkap sebagai `DuplicateExaminationError` di `api.ts`.
+3. Frontend (`ExaminationForm.tsx`) menampilkan dialog konfirmasi jelas, bukan toast error generik.
+
+File terkait:
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/api.ts`
+- `src/pages/ExaminationForm.tsx`
+
+---
+
+## 17. Perbaikan Bug: PUT /examinations Kolom `updatedAt` *(Apr 2026)*
+
+**Error:** `D1_ERROR: no such column: updatedAt: SQLITE_ERROR` saat "Ubah Riwayat" pemeriksaan.
+
+**Penyebab:** Query `UPDATE examinations SET ... updatedAt = ?` — kolom `updatedAt` tidak ada di tabel `examinations`.
+
+**Perbaikan:** Menghapus `updatedAt` dari query UPDATE. Tidak perlu kolom tersebut karena audit trail sudah cukup dari `createdAt`.
+
+File terkait:
+- `my-cloudflare-backend/src/routes/medical.ts`
+
+---
+
+## 18. Rencana Integrasi Sentry (Error Monitoring) *(Apr 2026)*
+
+Rencana integrasi Sentry Free Tier untuk memantau semua error yang terjadi di browser client secara otomatis. Detail lengkap lihat file:
+
+📄 `sentry_integration_plan.md`
+
+Ringkasan integrasi:
+- Package: `@sentry/react`
+- Init di: `src/main.tsx`
+- Set user di: `src/context/AuthContext.tsx`
+- Hanya aktif di production (`enabled: import.meta.env.PROD`)
+- Data pasien tidak masuk Sentry (privacy-safe)
+
+---
+
+## 19. Perbaikan Bug: Waktu "Selesai" Menunjukkan Jam UTC bukan WIB *(Apr 2026)*
+
+**Masalah:** Kolom WAKTU pada tab "Selesai" di halaman Pemeriksaan menampilkan jam UTC (misal: 12:34) padahal waktu sebenarnya adalah sekitar 19:34 WIB (UTC+7).
+
+**Penyebab:** `ExaminationList.tsx` baris 407 menggunakan `format(new Date(latestExaminationAt[...]), 'HH:mm')` dari `date-fns` yang menggunakan timezone lokal browser. Karena D1 menyimpan timestamp dalam UTC ISO string, hasilnya salah jika browser tidak di-set ke WIB.
+
+**Perbaikan:** Ganti dengan `formatWibSafe(latestExaminationAt[...], 'HH:mm')` dari `src/utils/date.ts` yang secara eksplisit mengonversi ke timezone `Asia/Jakarta`.
+
+File terkait:
+- `src/pages/ExaminationList.tsx` (baris 407)
+- `src/utils/date.ts` (fungsi `formatWibSafe`)
+
+---
+
+## 20. Sistem Log Error Cloudflare D1 (Gratis Penuh) *(Apr 2026)*
+
+Sebagai alternatif Sentry yang 100% gratis dan tidak ada batas waktu, dibangun sistem error logging berbasis Cloudflare D1 (database bawaan Cloudflare Workers).
+
+**Keunggulan:**
+- ✅ **Gratis selamanya** (tidak ada trial 14 hari)
+- ✅ Data tersimpan di infrastruktur Cloudflare sendiri
+- ✅ Tidak ada ketergantungan pihak ketiga
+
+**Komponen yang Dibuat:**
+
+| Komponen | File |
+|----------|------|
+| Tabel D1 | `error_logs` di database `klinik-db` (remote & local) |
+| Backend route | `my-cloudflare-backend/src/routes/errorLogs.ts` |
+| Registrasi route | `my-cloudflare-backend/src/index.ts` |
+| Frontend hook | `src/hooks/useErrorLogger.ts` |
+| Aktivasi global | `src/App.tsx` (`useErrorLogger()`) |
+
+**Cara Kerja:**
+1. Semua error JS yang tidak tertangani di browser ditangkap oleh `window.addEventListener('error', ...)` dan `unhandledrejection`.
+2. Error dikirim ke `POST /api/errors` (tanpa perlu login) dengan info: klinik, user, URL, stack trace, browser.
+3. Tersimpan di tabel `error_logs` di Cloudflare D1.
+4. Super Admin bisa melihat log via `GET /api/errors` (perlu auth admin).
+5. Log otomatis dibersihkan lewat `DELETE /api/errors` setelah 30 hari.
+
+---
+
+## 21. Multi-Criteria Patient Search (Pencarian Lanjut) *(Apr 2026)*
+
+**Masalah:** User ingin melakukan pencarian pasien dengan kombinasi Nama, NIK, Alamat, dan Usia secara bersamaan (AND logic).
+
+**Perbaikan:**
+1. Mengganti `searchTerm` tunggal dengan objek `filters` yang mencakup: `name`, `nik`, `address`, dan `age`.
+2. Memperbarui logika `filteredPatients` di `PatientList.tsx` agar melakukan pencocokan **AND** (semua kriteria yang diisi harus terpenuhi).
+3. Mendesain ulang UI pencarian menjadi grid input yang responsif untuk keempat kriteria tersebut.
+4. Menambahkan tombol "Hapus Filter" untuk mereset semua field input sekaligus.
+
+- `src/pages/PatientList.tsx`
+
+---
+
+## 22. Perbaikan Bug: NIK Tidak Tersimpan *(Apr 2026)*
+
+**Masalah:** Data NIK yang diinput di frontend tidak masuk ke database saat simpan atau ubah pasien.
+
+**Penyebab:** Handler backend `POST /patients` dan `PUT /patients/:id` belum menyertakan kolom `nik` dalam query SQL (INSERT/UPDATE), sehingga data tersebut diabaikan oleh server.
+
+**Perbaikan:** 
+1. Memperbarui query `INSERT` pada `POST /patients` di `medical.ts` untuk menyertakan kolom `nik`.
+2. Memperbarui query `UPDATE` pada `PUT /patients/:id` di `medical.ts` untuk menyertakan kolom `nik`.
+3. Melakukan redeploy worker backend.
+
+File terkait:
+- `my-cloudflare-backend/src/routes/medical.ts`
+
+---
+
+## 23. Optimasi Notifikasi & Logging Error *(Apr 2026)*
+
+**Masalah:** 
+1. Toast (notifikasi) menumpuk jika terjadi banyak aksi atau navigasi cepat.
+2. Error API (seperti 400 Bad Request saat daftar) tidak muncul di Error Logs Admin Panel.
+
+**Perbaikan:**
+1. **Deduplikasi Toast**: Memberikan ID unik pada setiap kategori toast (`exam-success`, `auth-status`, `reg-toast`). Ini memastikan pesan baru menggantikan yang lama, bukan menumpuk.
+2. **Auto-Logging API**: Mengintegrasikan fungsi `reportError` langsung ke dalam wrapper `api.ts`. Setiap kali API mengembalikan status non-2xx (400, 500, dsb), error tersebut otomatis dikirim ke database `error_logs` di D1 (kecuali 401 Unauthorized).
+3. **Penyelarasan Backend**: Memastikan endpoint `/api/errors` terbuka untuk POST (laporan error anonymous) namun tetap aman.
+
+File terkait:
+- `src/api.ts`
+- `src/hooks/useErrorLogger.ts`
+- `src/pages/ExaminationForm.tsx`
+- `src/pages/Register.tsx`
+- `src/context/AuthContext.tsx`
+---
+
+## 24. Pro Tier: Upload Gambar Hasil Lab *(Apr 2026)*
+
+- **Infrastruktur**: Membuat R2 Bucket `klinik-lab-results` di Cloudflare untuk penyimpanan gambar persisten.
+- **Backend**:
+    - Membuat route `upload.ts` untuk menangani upload via Multipart Form-Data dan Proxying gambar dari R2.
+    - Menambah kolom `labResultImage TEXT` pada tabel `examinations`.
+    - Memperbarui `medical.ts` untuk menyimpan path gambar ke database.
+- **Frontend**:
+    - Implementasi `LabSection.tsx` sebagai area upload interaktif dengan loading state dan validasi file.
+    - Integrasi `ExaminationDetailModal.tsx` untuk menampilkan foto hasil lab pada riwayat pemeriksaan (bisa diklik fullscreen).
+
+File terkait:
+- `my-cloudflare-backend/wrangler.jsonc`
+- `my-cloudflare-backend/src/routes/upload.ts`
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/components/ExaminationForm/LabSection.tsx`
+- `src/components/ExaminationDetailModal.tsx`
+
+---
+
+## 25. Pro Tier: Statistik Bisnis Lanjutan *(Apr 2026)*
+
+- **Backend**: Menambahkan endpoint `/api/stats/advanced` yang menghitung:
+    - Tren pendapatan bulanan (6 bulan terakhir).
+    - Top 5 Diagnosa (berdasarkan kode ICD-10).
+    - Distribusi demografi pasien (Gender).
+- **Frontend**: 
+    - Membuat komponen `AdvancedStatsSection.tsx` menggunakan library `chart.js` dan `react-chartjs-2`.
+    - Menampilkan statistik visual dalam bentuk grafik (Line, Bar, Pie) di Dashboard khusus untuk user Pro.
+
+File terkait:
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/components/AdvancedStatsSection.tsx`
+- `src/pages/Dashboard.tsx`
+
+---
+
+## 26. Perbaikan Pendaftaran & Sistem QRIS Dinamis *(Apr 2026)*
+
+- **Fix Registration**: Memperbaiki query `INSERT` pada `clinic_settings` yang sebelumnya error 400 karena ketidaksesuaian kolom `id` di backend vs database.
+- **QRIS Dinamis (EMVCo)**: 
+    - Membuat utility `qris.ts` untuk menghasilkan string QRIS standar EMVCo secara dinamis.
+    - Sistem otomatis menyuntikkan nominal (Tag 54) ke dalam QRIS sesuai dengan paket & tier yang dipilih saat mendaftar.
+    - Menghitung ulang CRC16-CCITT agar QR tetap valid dan bisa di-scan otomatis oleh aplikasi perbankan.
+- **Update Info Pembayaran**: 
+    - Bank BRI a/n **Akhmad Sudaisi**.
+    - Merchant Name **ARZACHEL MAINTENANCE**.
+    - Integrasi logo dan branding pada halaman `ActivationPending.tsx`.
+
+File terkait:
+- `my-cloudflare-backend/src/routes/auth.ts`
+- `src/utils/qris.ts`
+- `src/pages/ActivationPending.tsx`
+- `src/pages/Register.tsx`
+- `src/context/AuthContext.tsx`
