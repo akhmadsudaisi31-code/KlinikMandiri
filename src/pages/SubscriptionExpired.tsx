@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { SUBSCRIPTION_PLANS } from '../types';
+import { SUBSCRIPTION_PLANS, getPlanPrice, TierId } from '../types';
 import { api } from '../api';
 import toast from 'react-hot-toast';
 
 export default function SubscriptionExpired() {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState('MONTHLY');
   const [loading, setLoading] = useState(false);
@@ -96,7 +96,7 @@ export default function SubscriptionExpired() {
                                 <div className="flex-1">
                                     <div className="flex justify-between items-center">
                                         <div className="font-bold text-gray-900 dark:text-white text-sm">{plan.name}</div>
-                                        <div className="font-black text-primary-600 text-sm">Rp{plan.price.toLocaleString('id-ID')}</div>
+                                        <div className="font-black text-primary-600 text-sm">Rp{getPlanPrice(plan.id, (user?.tier as TierId) || 'STANDARD').toLocaleString('id-ID')}</div>
                                     </div>
                                     <div className="text-xs text-gray-500 mt-1 uppercase tracking-wider">{plan.duration}</div>
                                 </div>
