@@ -20,6 +20,9 @@ medical.get('/patients', async (c) => {
   const clinicId = getClinicId(c)
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
+  const search = c.req.query('search') // Pencarian nama/RM server-side
+  const page = parseInt(c.req.query('page') || '1')
+  const pageSize = parseInt(c.req.query('pageSize') || '0') // 0 = no pagination (ambil semua)
 
   let query = 'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt FROM patients WHERE clinicId = ?'
   const params: any[] = [clinicId]
@@ -29,7 +32,21 @@ medical.get('/patients', async (c) => {
     params.push(startDate, endDate)
   }
 
-  query += ' ORDER BY createdAt DESC LIMIT 1000'
+  // Server-side search untuk mendukung pencarian pada dataset besar
+  if (search) {
+    query += ' AND (LOWER(name) LIKE ? OR LOWER(rm) LIKE ?)'
+    const searchPattern = `%${search.toLowerCase()}%`
+    params.push(searchPattern, searchPattern)
+  }
+
+  // FIX KRITIS: Tidak lagi ada hard-limit LIMIT 1000 yang memotong pasien lama!
+  // Pasien lama (RM kecil, createdAt lebih awal) sekarang selalu dikembalikan.
+  query += ' ORDER BY createdAt DESC'
+
+  if (pageSize > 0) {
+    const offset = (page - 1) * pageSize
+    query += ` LIMIT ${pageSize} OFFSET ${offset}`
+  }
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   return c.json(results)
@@ -37,11 +54,25 @@ medical.get('/patients', async (c) => {
 
 medical.get('/patients/next-rm', async (c) => {
   const clinicId = getClinicId(c)
-  const count: any = await c.env.DB.prepare(
-    'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
-  ).bind(clinicId).first()
   
-  const nextNum = (count?.total || 0) + 1
+  // FIX KRITIS: Gunakan MAX rm numerik, bukan COUNT(*)
+  // COUNT berubah saat pasien dihapus -> menyebabkan nomor RM duplikat/konflik
+  // MAX selalu mengembalikan nomor terbesar yang pernah digunakan -> aman
+  const maxResult: any = await c.env.DB.prepare(
+    `SELECT MAX(CAST(REPLACE(REPLACE(rm, 'RM-', ''), '-', '') AS INTEGER)) as maxNum 
+     FROM patients 
+     WHERE clinicId = ? AND rm LIKE 'RM-%'`
+  ).bind(clinicId).first()
+
+  // Fallback ke COUNT jika tidak ada pasien dengan format RM-XXXX
+  let nextNum = (maxResult?.maxNum || 0) + 1
+  if (!maxResult?.maxNum) {
+    const count: any = await c.env.DB.prepare(
+      'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
+    ).bind(clinicId).first()
+    nextNum = (count?.total || 0) + 1
+  }
+
   const rm = `RM-${String(nextNum).padStart(4, '0')}`
   return c.json({ rm })
 })
@@ -63,16 +94,28 @@ medical.post('/patients', async (c) => {
 
   // --- CEK ATAU BUAT RM ---
   if (finalRm === 'AUTO') {
-     let success = false;
-     let nextNum = 1;
-
-     // Mulai dari total count + 1
-     const count: any = await c.env.DB.prepare(
-       'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
+     // FIX KRITIS: Gunakan MAX(rm) bukan COUNT(*) sebagai titik awal.
+     // COUNT berkurang saat pasien dihapus → menyebabkan RM duplikat/konflik.
+     // MAX selalu mengembalikan angka RM tertinggi yang pernah ada → aman.
+     const maxResult: any = await c.env.DB.prepare(
+       `SELECT MAX(CAST(REPLACE(rm, 'RM-', '') AS INTEGER)) as maxNum 
+        FROM patients 
+        WHERE clinicId = ? AND rm LIKE 'RM-%'`
      ).bind(clinicId).first();
-     
-     nextNum = (count?.total || 0) + 1;
 
+     let nextNum: number;
+     if (maxResult?.maxNum) {
+       nextNum = maxResult.maxNum + 1;
+     } else {
+       // Fallback: belum ada pasien dengan format RM-XXXX sama sekali
+       const count: any = await c.env.DB.prepare(
+         'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
+       ).bind(clinicId).first();
+       nextNum = (count?.total || 0) + 1;
+     }
+
+     // Loop safety-net: pastikan RM yang dipilih benar-benar belum dipakai
+     let success = false;
      let attempts = 0;
      while (!success && attempts < 20) {
          finalRm = `RM-${String(nextNum).padStart(4, '0')}`;

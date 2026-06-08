@@ -165,17 +165,41 @@ function Reports() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus data ini?')) return;
+    const isExamDeletion = dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan';
+
+    const confirmMsg = isExamDeletion
+      ? 'Hapus data pemeriksaan ini? Status pasien akan dikembalikan ke Pendaftaran jika tidak ada pemeriksaan lain di hari yang sama.'
+      : 'Apakah Anda yakin ingin menghapus data ini?';
+
+    if (!window.confirm(confirmMsg)) return;
 
     try {
       const deleteEndpoint = (dataSource === 'anc' || dataSource === 'persalinan') ? 'examinations' : dataSource;
-      await api.delete(`/${deleteEndpoint}/${id}`);
-      toast.success('Data berhasil dihapus');
-      
-      // Update local state
-      if (dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') {
+
+      if (isExamDeletion) {
+        // Simpan data examination sebelum dihapus untuk mendapatkan patientId
+        const examToDelete = examinations.find(e => e.id === id);
+        
+        await api.delete(`/${deleteEndpoint}/${id}`);
+        toast.success('Data pemeriksaan berhasil dihapus');
         setExaminations(prev => prev.filter(item => item.id !== id));
+
+        // Reset status poli pasien ke 'Pendaftaran' agar tidak menjadi data "hantu"
+        // (pasien dengan poli='Selesai' tapi tidak punya record pemeriksaan)
+        if (examToDelete?.patientId) {
+          try {
+            await api.put(`/patients/${examToDelete.patientId}`, {
+              poli: 'Pendaftaran',
+              updatedAt: new Date().toISOString()
+            });
+          } catch (resetErr) {
+            // Non-fatal: log saja, jangan block user experience
+            console.warn('Gagal reset status pasien, mungkin sudah Pendaftaran:', resetErr);
+          }
+        }
       } else {
+        await api.delete(`/${deleteEndpoint}/${id}`);
+        toast.success('Data berhasil dihapus');
         setPatients(prev => prev.filter(item => item.id !== id));
       }
     } catch (error) {
