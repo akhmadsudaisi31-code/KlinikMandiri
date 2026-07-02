@@ -50,13 +50,12 @@ function ExaminationList() {
     const examinationUnitLabel = useMemo(() => getExaminationUnitLabel(user?.clinicType), [user?.clinicType]);
     const examinationQueueLabel = useMemo(() => getExaminationQueueLabel(user?.clinicType), [user?.clinicType]);
 
-    // Data Fetching Logic (Memoized)
     const fetchPatients = useCallback(async (showLoading = false) => {
         if (!user) return;
         if (showLoading) setLoading(true);
 
         try {
-            const data = await api.get('/patients');
+            const data = await api.get(`/patients?activeDate=${selectedDate}`);
             const allPatients = Array.isArray(data) ? data : [];
             const now = Date.now();
 
@@ -75,7 +74,7 @@ function ExaminationList() {
         } finally {
             if (showLoading) setLoading(false);
         }
-    }, [user]);
+    }, [user, selectedDate]);
 
     const fetchExaminations = useCallback(async () => {
         if (!user) return;

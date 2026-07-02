@@ -15,16 +15,16 @@ function Dashboard() {
 
     const fetchStats = useCallback(async () => {
         try {
-            const [patients, exams, medicines, announce] = await Promise.all([
-                api.get('/patients'),
-                api.get('/examinations/today'),
-                api.get('/medicines'),
+            const [patientsCount, examsCount, medicinesCount, announce] = await Promise.all([
+                api.get('/patients/count'),
+                api.get('/examinations/today/count'),
+                api.get('/medicines/count'),
                 api.get('/broadcast').catch(() => null)
             ]);
             
-            setTotalPatients(patients?.length || 0);
-            setTodayExaminations(exams?.length || 0);
-            setMedicineStock(medicines?.length || 0);
+            setTotalPatients(patientsCount?.total || 0);
+            setTodayExaminations(examsCount?.total || 0);
+            setMedicineStock(medicinesCount?.total || 0);
             if (announce && announce.message) {
                 setAnnouncement(announce.message);
             }

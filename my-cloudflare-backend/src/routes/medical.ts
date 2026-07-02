@@ -23,6 +23,7 @@ medical.get('/patients', async (c) => {
   const search = c.req.query('search') // Pencarian nama/RM server-side
   const page = parseInt(c.req.query('page') || '1')
   const pageSize = parseInt(c.req.query('pageSize') || '0') // 0 = no pagination (ambil semua)
+  const activeDate = c.req.query('activeDate') // Untuk ExaminationList (Antrean / Riwayat)
 
   let query = 'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt FROM patients WHERE clinicId = ?'
   const params: any[] = [clinicId]
@@ -39,6 +40,14 @@ medical.get('/patients', async (c) => {
     params.push(searchPattern, searchPattern)
   }
 
+  // Filter antrean aktif & riwayat antrean berdasarkan tanggal
+  if (activeDate) {
+    const startIso = new Date(`${activeDate}T00:00:00+07:00`).toISOString()
+    const endIso = new Date(`${activeDate}T23:59:59.999+07:00`).toISOString()
+    query += ` AND (poli = 'Pemeriksaan' OR id IN (SELECT patientId FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ?))`
+    params.push(clinicId, startIso, endIso)
+  }
+
   // FIX KRITIS: Tidak lagi ada hard-limit LIMIT 1000 yang memotong pasien lama!
   // Pasien lama (RM kecil, createdAt lebih awal) sekarang selalu dikembalikan.
   query += ' ORDER BY createdAt DESC'
@@ -50,6 +59,12 @@ medical.get('/patients', async (c) => {
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   return c.json(results)
+})
+
+medical.get('/patients/count', async (c) => {
+  const clinicId = getClinicId(c)
+  const result: any = await c.env.DB.prepare('SELECT COUNT(*) as total FROM patients WHERE clinicId = ?').bind(clinicId).first()
+  return c.json({ total: result?.total || 0 })
 })
 
 medical.get('/patients/next-rm', async (c) => {
@@ -213,6 +228,12 @@ medical.get('/medicines', async (c) => {
   return c.json(results)
 })
 
+medical.get('/medicines/count', async (c) => {
+  const clinicId = getClinicId(c)
+  const result: any = await c.env.DB.prepare('SELECT COUNT(*) as total FROM medicines WHERE clinicId = ?').bind(clinicId).first()
+  return c.json({ total: result?.total || 0 })
+})
+
 medical.get('/medicines/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
@@ -276,6 +297,20 @@ medical.get('/examinations/today', async (c) => {
   }))
   
   return c.json(formatted)
+})
+
+medical.get('/examinations/today/count', async (c) => {
+  const clinicId = getClinicId(c)
+  const now = new Date()
+  const wibTimeStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now)
+  const startIso = new Date(`${wibTimeStr}T00:00:00+07:00`).toISOString()
+  const endIso = new Date(`${wibTimeStr}T23:59:59.999+07:00`).toISOString()
+  
+  const result: any = await c.env.DB.prepare(
+    "SELECT COUNT(*) as total FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ?"
+  ).bind(clinicId, startIso, endIso).first()
+  
+  return c.json({ total: result?.total || 0 })
 })
 
 medical.get('/examinations', async (c) => {
