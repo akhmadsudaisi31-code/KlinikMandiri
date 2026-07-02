@@ -514,3 +514,22 @@ Frontend `PatientList.tsx` mencoba memuat seluruh data pasien tanpa `page` atau 
 
 **File terkait:**
 - `src/pages/PatientList.tsx`
+
+---
+
+## 29. Optimasi Performa Polling & Resolusi D1 Timeout (Juli 2026)
+
+**Insiden/Masalah:**
+Sistem sering menampilkan pesan *error* `D1_ERROR: D1 DB storage operation exceeded timeout which caused object to be reset` di log aplikasi.
+
+**Akar Masalah:**
+Fitur *polling* otomatis di halaman `Dashboard.tsx` dan `ExaminationList.tsx` meminta *full table scan* (mengunduh seluruh tabel pasien, obat, dan antrean) ke *backend* setiap 10 detik dari tiap pengguna. Transmisi payload berukuran raksasa ini memaksa Cloudflare D1 melebihi ambang batas waktu (*timeout*) dan akhirnya me-reset *Durable Object*.
+
+**Perbaikan:**
+1. **Pembuatan API Statistik (Count)**: Menambah *endpoint* `/patients/count`, `/medicines/count`, dan `/examinations/today/count` di *backend* sehingga *dashboard* cukup menerima data angka statistik (ringan) dibanding array JSON dari seluruh tabel.
+2. **Filter Antrean Aktif (activeDate)**: Mengubah pengambilan data pasien di daftar antrean agar mem-filter `poli = 'Pemeriksaan'` atau pasien dengan riwayat pemeriksaan *pada tanggal yang dipilih* via `activeDate`, menghilangkan kebutuhan transfer ribuan profil pasien yang tak relevan.
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/pages/Dashboard.tsx`
+- `src/pages/ExaminationList.tsx`
