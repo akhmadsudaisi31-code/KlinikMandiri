@@ -36,11 +36,17 @@ function PatientList() {
       let qName = filters.name.toLowerCase().trim();
       qName = qName.replace(/^(hj\.|h\.|hj|h|ny\.|tn\.|an\.|by\.)\s+/g, '');
       
+      const params = new URLSearchParams();
       if (qName) {
-        endpoint += `?search=${encodeURIComponent(qName)}`;
+        params.append('search', qName);
+      } else {
+        // Mencegah D1 Timeout Crash: Hanya ambil 100 pasien terbaru jika tidak ada pencarian.
+        // Jika butuh pasien lama, user harus menggunakan kotak pencarian nama.
+        params.append('page', '1');
+        params.append('pageSize', '100');
       }
 
-      const data = await api.get(endpoint);
+      const data = await api.get(`${endpoint}?${params.toString()}`);
       setPatients(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Error fetching patients: ", e);
