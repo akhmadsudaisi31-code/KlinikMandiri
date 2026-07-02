@@ -477,3 +477,40 @@ File terkait:
 - `src/pages/ActivationPending.tsx`
 - `src/pages/Register.tsx`
 - `src/context/AuthContext.tsx`
+
+---
+
+## 27. Perbaikan Kritis Integritas Data & Sistem RM *(Juni 2026)*
+
+**Insiden/Masalah:**
+1. Pasien lama dengan nomor RM awal (seperti RM-0001 sampai RM-0100) tidak muncul dari hasil pencarian jika total pasien klinik melebihi 1000 karena adanya batasan `LIMIT 1000` pada query.
+2. Terjadi duplikasi atau konflik nomor RM otomatis jika ada pasien lama yang dihapus, karena sistem menggunakan `COUNT(*)` untuk menentukan nomor RM berikutnya.
+3. Penghapusan rekam medis di tab Laporan menyisakan pasien dengan status poli `Selesai` tanpa pemeriksaan terkait (*ghost patient*).
+
+**Perbaikan:**
+1. **Penghapusan Hard Limit & Paginasi**: Menghapus `LIMIT 1000` dari endpoint `GET /patients` dan mengimplementasikan pencarian server-side (`search`) serta opsi paginasi (`page` & `pageSize`) agar data pasien lama tidak terpotong.
+2. **Auto RM Berbasis Nilai Maksimum**: Mengubah penentuan nomor RM baru dari `COUNT(*)` menjadi `MAX(rm)` numerik. Sistem kini mengambil nomor RM tertinggi yang pernah dibuat dan menambahkannya dengan 1. Ditambahkan pula safety-net loop untuk menjamin keunikan.
+3. **Reset Status Poli**: Pada fungsi `handleDelete` di `Reports.tsx`, jika data pemeriksaan dihapus, status poli pasien otomatis dikembalikan ke `Pendaftaran` agar data tetap sinkron.
+4. **Migrasi Database**: Menambahkan kolom `updatedAt` pada tabel `examinations` dan `visits` di database Cloudflare D1.
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `my-cloudflare-backend/migrations/0004_add_updated_at_to_examinations_and_visits.sql`
+- `src/pages/Reports.tsx`
+
+---
+
+## 28. Perbaikan Kasus Pasien Menghilang di Pencarian (Juli 2026)
+
+**Insiden/Masalah:**
+Pasien lama (contoh: Sumriyah, Ismiyatul) seolah menghilang dan tidak dapat ditemukan saat dicari di daftar pasien.
+
+**Akar Masalah:**
+Frontend `PatientList.tsx` mencoba memuat seluruh data pasien tanpa `page` atau `search` server-side, sehingga menabrak *limit payload* Cloudflare D1 saat volume data pasien sudah besar. Karena *backend* menggunakan `ORDER BY createdAt DESC`, sisa data (yakni pasien-pasien lama) terpotong dan tidak pernah sampai di *frontend*.
+
+**Perbaikan:**
+1. **Server-Side Search**: Meneruskan kata kunci nama (setelah dibersihkan dari gelar) langsung ke API melalui parameter `?search=nama`. Dengan begini, database langsung yang memfilter hasilnya sehingga respon dari *backend* sangat spesifik, terhindar dari *limit payload* atau *truncation*.
+2. **Debounce Optimization**: Menambahkan jeda waktu (*debounce*) 400ms saat mengetik, guna mencegah *spam* kueri ke *server* dan menghemat *rows read* di D1.
+
+**File terkait:**
+- `src/pages/PatientList.tsx`

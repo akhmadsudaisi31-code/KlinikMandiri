@@ -32,19 +32,31 @@ function PatientList() {
     }
 
     try {
-      const data = await api.get('/patients');
+      let endpoint = '/patients';
+      let qName = filters.name.toLowerCase().trim();
+      qName = qName.replace(/^(hj\.|h\.|hj|h|ny\.|tn\.|an\.|by\.)\s+/g, '');
+      
+      if (qName) {
+        endpoint += `?search=${encodeURIComponent(qName)}`;
+      }
+
+      const data = await api.get(endpoint);
       setPatients(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Error fetching patients: ", e);
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, []);
+  }, [filters.name]);
 
-  // Initial fetch
+  // Initial fetch and Debounced search
   useEffect(() => {
     if (user) {
-      fetchPatients(true);
+      const delayDebounceFn = setTimeout(() => {
+        fetchPatients(true);
+      }, 400);
+
+      return () => clearTimeout(delayDebounceFn);
     }
   }, [user, fetchPatients]);
 
@@ -129,12 +141,18 @@ function PatientList() {
 
   const filteredPatients = useMemo(() => {
     return patients.filter(p => {
-      const qName = filters.name.toLowerCase().trim();
+      let qName = filters.name.toLowerCase().trim();
+      // Bersihkan gelar/panggilan umum (H., Hj., Ny., Tn., An., By.) di awal pencarian agar pencarian lebih fleksibel
+      qName = qName.replace(/^(hj\.|h\.|hj|h|ny\.|tn\.|an\.|by\.)\s+/g, '');
+
       const qNik = filters.nik.toLowerCase().trim();
       const qAddress = filters.address.toLowerCase().trim();
       const qAge = filters.age.toLowerCase().trim();
 
-      const matchName = !qName || p.name.toLowerCase().includes(qName) || p.rm.includes(qName);
+      // Bersihkan juga gelar pada nama pasien di database saat membandingkan
+      const cleanPatientName = p.name.toLowerCase().replace(/^(hj\.|h\.|hj|h|ny\.|tn\.|an\.|by\.)\s+/g, '');
+
+      const matchName = !qName || cleanPatientName.includes(qName) || p.name.toLowerCase().includes(qName) || p.rm.includes(qName);
       const matchNik = !qNik || ((p as any).nik || '').toLowerCase().includes(qNik);
       const matchAddress = !qAddress || (p.address || '').toLowerCase().includes(qAddress);
       const matchAge = !qAge || (p.ageDisplay || '').toLowerCase().includes(qAge);
