@@ -533,3 +533,20 @@ Fitur *polling* otomatis di halaman `Dashboard.tsx` dan `ExaminationList.tsx` me
 - `my-cloudflare-backend/src/routes/medical.ts`
 - `src/pages/Dashboard.tsx`
 - `src/pages/ExaminationList.tsx`
+
+---
+
+## 30. Perbaikan Bug: Data Alergi Hilang Saat Edit Parsial (Juli 2026)
+
+**Insiden/Masalah:**
+Klien melaporkan bahwa data riwayat alergi pasien (seperti Ibu Salamah) yang sudah diisi sebelumnya menghilang.
+
+**Akar Masalah:**
+Saat data pasien diubah melalui halaman selain form pemeriksaan (misalnya saat memindahkan poli atau mengubah profil di menu pendaftaran), *frontend* hanya mengirim subset data. *Backend* (`PUT /patients/:id`) menggunakan logika *update* statis yang menimpa field yang tidak dikirim menjadi `null`. Karena field `allergies` tidak dikirim dari form pendaftaran/profil, field tersebut ditimpa menjadi `null` di database.
+
+**Perbaikan:**
+1. **Dynamic Partial Updates**: Mengubah query `UPDATE` di `medical.ts` menjadi dinamis. Backend sekarang hanya memperbarui *field* yang secara spesifik disertakan dalam *payload* `body` *request*. 
+2. Jika field seperti `allergies` bernilai `undefined` (tidak ada di *payload*), sistem akan melewati/mengabaikannya dan tidak menimpanya dengan `null`. Ini melindungi data historis yang spesifik seperti rekam medis/alergi agar tidak terhapus tanpa sengaja oleh *form* registrasi.
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
