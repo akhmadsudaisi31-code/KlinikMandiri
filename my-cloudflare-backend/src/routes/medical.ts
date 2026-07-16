@@ -188,18 +188,31 @@ medical.put('/patients/:id', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.json()
   
-  const keys = Object.keys(body)
-  if (keys.includes('poli') && keys.length <= 2) {
-      await c.env.DB.prepare(
-        'UPDATE patients SET poli = ?, updatedAt = ? WHERE id = ? AND clinicId = ?'
-      ).bind(body.poli, body.updatedAt || new Date().toISOString(), id, clinicId).run()
-  } else {
-      await c.env.DB.prepare(
-        'UPDATE patients SET name=?, namaSuami=?, gender=?, category=?, address=?, occupation=?, dob=?, ageYears=?, ageMonths=?, ageDisplay=?, nik=?, poli=?, allergies=?, keluhan=?, updatedAt=? WHERE id=? AND clinicId=?'
-      ).bind(
-        body.name, body.namaSuami || null, body.gender, body.category, body.address, body.occupation || null, body.dob, 
-        body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, new Date().toISOString(), id, clinicId
-      ).run()
+  const updates: string[] = []
+  const values: any[] = []
+
+  const allowedFields = [
+    'name', 'namaSuami', 'gender', 'category', 'address', 'occupation', 'dob',
+    'ageYears', 'ageMonths', 'ageDisplay', 'nik', 'poli', 'allergies', 'keluhan', 'updatedAt'
+  ]
+
+  for (const field of allowedFields) {
+    if (body[field] !== undefined) {
+      updates.push(`${field} = ?`)
+      values.push(body[field])
+    }
+  }
+
+  if (updates.length > 0) {
+    if (body.updatedAt === undefined) {
+      updates.push(`updatedAt = ?`)
+      values.push(new Date().toISOString())
+    }
+
+    const query = `UPDATE patients SET ${updates.join(', ')} WHERE id = ? AND clinicId = ?`
+    values.push(id, clinicId)
+
+    await c.env.DB.prepare(query).bind(...values).run()
   }
   
   return c.json({ success: true })
