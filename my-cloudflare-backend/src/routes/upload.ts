@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getSignedUrl } from '@cloudflare/workers-types'
+
 
 type Bindings = {
   DB: D1Database

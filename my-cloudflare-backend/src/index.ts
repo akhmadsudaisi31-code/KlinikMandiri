@@ -128,20 +128,13 @@ app.use('/api/*', async (c, next) => {
   if (!payload) return next(); // Should be caught by JWT middleware but just in case
   
   if (payload.isAdmin !== 1) {
-    try {
-      const clinic: any = await c.env.DB.prepare('SELECT status, validUntil FROM clinics WHERE id = ?').bind(payload.uid).first();
-      
-      if (!clinic || clinic.status !== 'active') {
-          return c.json({ error: 'Akun Anda belum aktif atau telah ditangguhkan.', status: clinic?.status || 'inactive' }, 403)
-      }
-      
-      if (clinic.validUntil && new Date(clinic.validUntil).getTime() < Date.now()) {
-          return c.json({ error: 'Masa aktif langganan habis.', status: 'expired', validUntil: clinic.validUntil }, 403)
-      }
-    } catch (e) {
-      console.error("Clinic check error:", e);
-      // If DB fails, we might want to allow common requests or fail safe. 
-      // For now, let's just continue to see if it works.
+    // Cek status dari JWT payload secara instan (tanpa DB Query)
+    if (payload.status !== 'active') {
+        return c.json({ error: 'Akun Anda belum aktif atau telah ditangguhkan.', status: payload.status || 'inactive' }, 403)
+    }
+    
+    if (payload.validUntil && new Date(payload.validUntil).getTime() < Date.now()) {
+        return c.json({ error: 'Masa aktif langganan habis.', status: 'expired', validUntil: payload.validUntil }, 403)
     }
   }
   

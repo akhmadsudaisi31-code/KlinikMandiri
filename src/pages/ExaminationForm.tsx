@@ -413,7 +413,7 @@ function ExaminationForm() {
         console.error("Gagal mengambil referensi ICD:", error);
         setIcd10Items(fallbackItems);
       }
-    }, 200);
+    }, 500);
 
     return () => window.clearTimeout(timer);
   }, [isDentalClinic, watchIcd10]);

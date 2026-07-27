@@ -25,6 +25,8 @@ icd.get('/search', async (c) => {
     
     try {
         const { results } = await c.env.DB.prepare(query).bind(...params).all()
+        // Menginstruksikan Browser dan Edge CDN untuk meng-cache hasil ini selama 24 jam
+        c.header('Cache-Control', 'public, max-age=86400, s-maxage=86400')
         return c.json(results)
     } catch (e: any) {
         console.error("ICD Search Error:", e)

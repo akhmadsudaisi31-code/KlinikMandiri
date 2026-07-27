@@ -162,13 +162,27 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Email atau password salah' }, 401)
   }
 
+  let clinicStatus = user.status;
+  let clinicValidUntil = user.validUntil;
+
+  if (userType !== 'OWNER') {
+      const parentClinic: any = await c.env.DB.prepare(
+          'SELECT status, validUntil FROM clinics WHERE id = ?'
+      ).bind(user.clinicId).first();
+      if (parentClinic) {
+          clinicStatus = parentClinic.status;
+          clinicValidUntil = parentClinic.validUntil;
+      }
+  }
+
   const token = await sign({ 
     uid: userType === 'OWNER' ? user.id : user.clinicId, 
     subId: userType !== 'OWNER' ? user.id : undefined,
     email: user.email, 
-    status: userType === 'OWNER' ? user.status : 'active',
+    status: clinicStatus || 'active',
     isAdmin: userType === 'OWNER' ? user.isAdmin : 0,
     role: userType === 'OWNER' ? 'OWNER' : user.role,
+    validUntil: clinicValidUntil,
     exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
   }, getSecretFromEnv(c.env))
 

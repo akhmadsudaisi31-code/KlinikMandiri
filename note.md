@@ -550,3 +550,17 @@ Saat data pasien diubah melalui halaman selain form pemeriksaan (misalnya saat m
 
 **File terkait:**
 - `my-cloudflare-backend/src/routes/medical.ts`
+
+---
+
+## 31. Optimasi Frontend (Tahap 3) untuk Mencegah Limit API (Juli 2026)
+
+**Masalah:** 
+Fitur pencarian *autocomplete* ICD-10 di form pemeriksaan sebelumnya menembak API terlalu sering (setiap 200ms) saat dokter mengetik, yang berisiko membuat kuota *Worker Invocations* harian penuh.
+
+**Perbaikan:**
+1. Memperpanjang jeda *debounce* pencarian ICD-10 di `ExaminationForm.tsx` dari 200ms menjadi 500ms. Ini berarti API hanya akan dipanggil jika dokter berhenti mengetik selama setengah detik.
+2. Kombinasi dengan Edge Caching (Tahap 2) membuat jumlah *request* yang bocor ke *backend* menjadi sangat minimal.
+
+**File terkait:**
+- `src/pages/ExaminationForm.tsx`
