@@ -236,7 +236,7 @@ medical.delete('/patients/:id', async (c) => {
 medical.get('/medicines', async (c) => {
   const clinicId = getClinicId(c)
   const { results } = await c.env.DB.prepare(
-    'SELECT id, name, unit, price, createdAt FROM medicines WHERE clinicId = ? ORDER BY name ASC'
+    'SELECT id, name, unit, price, createdAt FROM medicines WHERE clinicId = ? ORDER BY name ASC LIMIT 1000'
   ).bind(clinicId).all()
   return c.json(results)
 })
@@ -332,9 +332,14 @@ medical.get('/examinations', async (c) => {
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
   
-  // FIX: Added clinicId check to the JOIN condition for extra security
   let query = `
-    SELECT examinations.*, patients.namaSuami, patients.ageDisplay, patients.address, patients.occupation 
+    SELECT examinations.id, examinations.clinicId, examinations.patientId, examinations.patientName,
+           examinations.patientRm, examinations.diagnosa, examinations.icd10, examinations.biaya,
+           examinations.tindakan, examinations.edukasi, examinations.rencanaTindakLanjut,
+           examinations.keluhanUtama, examinations.medicines_json, examinations.extendedData_json,
+           examinations.createdAt, COALESCE(examinations.date, examinations.createdAt) as date,
+           examinations.updatedAt, examinations.labResultImage,
+           patients.namaSuami, patients.ageDisplay, patients.address, patients.occupation 
     FROM examinations 
     LEFT JOIN patients ON examinations.patientId = patients.id AND patients.clinicId = examinations.clinicId 
     WHERE examinations.clinicId = ?

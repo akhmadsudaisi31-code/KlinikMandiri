@@ -7,11 +7,11 @@ import { useForm, Controller } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { formatRupiah, parseRupiah } from '../utils/format';
 import { format } from 'date-fns';
-import { id as localeId } from 'date-fns/locale';
 import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
 import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 import { subscribeDataSync } from '../utils/dataSync';
+import { formatWibSafe } from '../utils/date';
 
 type VisitFormData = {
   diagnosis: string;
@@ -418,18 +418,23 @@ function PatientDetail() {
             </div>
           ) : (
             [...visits, ...examinations]
-              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+              .sort((a, b) => {
+                const dateA = new Date(a.date || a.createdAt || 0).getTime();
+                const dateB = new Date(b.date || b.createdAt || 0).getTime();
+                return dateB - dateA;
+              })
               .map((item) => {
                 const isExamination = 'keluhanUtama' in item;
                 const diagnosis = isExamination ? (item as Examination).diagnosa : (item as Visit).diagnosis;
+                const rawDate = item.date || item.createdAt;
 
                 return (
                   <div key={item.id} className="relative flex flex-col md:flex-row items-start group z-10">
                     {/* Tanggal (Desktop Column) */}
                     <div className="hidden md:block w-32 text-right pr-8 pt-2">
-                      <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{format(new Date(item.date), 'dd MMM', { locale: localeId })}</div>
-                      <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{format(new Date(item.date), 'yyyy', { locale: localeId })}</div>
-                      <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{format(new Date(item.date), 'HH:mm', { locale: localeId })}</div>
+                      <div className="font-bold text-gray-900 dark:text-white text-lg leading-none">{formatWibSafe(rawDate, 'dd MMM')}</div>
+                      <div className="text-sm text-gray-400 dark:text-gray-500 mt-1">{formatWibSafe(rawDate, 'yyyy')}</div>
+                      <div className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1 bg-primary-50 dark:bg-primary-900/30 inline-block px-1.5 rounded">{formatWibSafe(rawDate, 'HH:mm')}</div>
                     </div>
 
                     {/* Dot */}
@@ -448,9 +453,9 @@ function PatientDetail() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/80 px-2 py-1 rounded-lg border border-gray-100 dark:border-gray-700">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                            <span className="whitespace-nowrap">{format(new Date(item.date), 'dd MMM yyyy', { locale: localeId })}</span>
+                            <span className="whitespace-nowrap">{formatWibSafe(rawDate, 'dd MMM yyyy')}</span>
                             <span className="opacity-40">|</span>
-                            <span>{format(new Date(item.date), 'HH:mm')}</span>
+                            <span>{formatWibSafe(rawDate, 'HH:mm')}</span>
                           </div>
                           {isExamination && (
                             <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 rounded-lg border border-purple-100/50 dark:border-purple-800/50 uppercase tracking-tighter">

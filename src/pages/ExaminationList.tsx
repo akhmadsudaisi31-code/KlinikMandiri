@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useVisiblePolling } from '../hooks/useVisiblePolling';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
@@ -119,17 +120,9 @@ function ExaminationList() {
         fetchSettings();
     }, [user, selectedDateValue]); // Only re-fetch on identity or date change
 
-    // Polling Effect (Isolated & Pausable)
-    useEffect(() => {
-        if (!user || isPrintModalOpen) return;
-
-        const interval = setInterval(() => {
-            fetchPatients(false);
-            fetchExaminations();
-        }, 10000);
-
-        return () => clearInterval(interval);
-    }, [user, isPrintModalOpen, fetchPatients, fetchExaminations]);
+    // Polling (tab-visible only, paused when print modal is open)
+    useVisiblePolling(() => fetchPatients(false), 30000, !isPrintModalOpen);
+    useVisiblePolling(fetchExaminations, 30000, !isPrintModalOpen);
 
     // Sync Subscriptions
     useEffect(() => {

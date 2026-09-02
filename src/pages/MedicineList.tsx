@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 import { subscribeDataSync } from '../utils/dataSync';
+import { useVisiblePolling } from '../hooks/useVisiblePolling';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -40,24 +41,15 @@ function MedicineList() {
         }
     }, [user, fetchMedicines]);
 
-    // Polling & Sync (Increased interval for stability)
+    // Polling: pause saat tab hidden, 120 detik → hemat D1 rows
+    useVisiblePolling(fetchMedicines, 120000);
+
+    // Sync dari aksi lokal (tetap pertahankan)
     useEffect(() => {
-        let isMounted = true;
-
-        const pollingInterval = setInterval(() => {
-            if (isMounted) fetchMedicines();
-        }, 10000);
-
-        const unsubscribe = subscribeDataSync(['medicines'], () => {
-            if (isMounted) fetchMedicines();
-        });
-
-        return () => {
-            isMounted = false;
-            clearInterval(pollingInterval);
-            unsubscribe();
-        };
+        const unsubscribe = subscribeDataSync(['medicines'], fetchMedicines);
+        return unsubscribe;
     }, [fetchMedicines]);
+
 
     const handleDelete = async (medicineId: string, medicineName: string) => {
         if (window.confirm(`Apakah Anda yakin ingin menghapus obat ${medicineName}?`)) {

@@ -155,8 +155,8 @@ function Header() {
     fetchNotifications(isMounted);
 
     const interval = setInterval(() => {
-        if (isMounted) fetchNotifications(isMounted);
-    }, 10000); // 10s for notifications
+        if (isMounted && document.visibilityState !== 'hidden') fetchNotifications(true);
+    }, 30000); // 30s for notifications
 
     const handleWakeUp = () => {
       if (document.visibilityState === 'visible' && isMounted) {
@@ -164,7 +164,8 @@ function Header() {
       }
     };
 
-    window.addEventListener('focus', () => isMounted && fetchNotifications(isMounted));
+    const handleFocus = () => { if (isMounted) fetchNotifications(true); };
+    window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleWakeUp);
     
     const unsubscribe = subscribeDataSync(['notifications'], () => {
@@ -174,7 +175,7 @@ function Header() {
     return () => {
       isMounted = false;
       clearInterval(interval);
-      window.removeEventListener('focus', () => fetchNotifications(false));
+      window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleWakeUp);
       unsubscribe();
     };

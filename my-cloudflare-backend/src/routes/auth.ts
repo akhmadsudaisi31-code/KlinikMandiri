@@ -95,7 +95,7 @@ auth.post('/register', async (c) => {
         email: body.email, 
         status: 'pending',
         isAdmin: 0,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 7 hari (was: 24 jam)
     }, getSecretFromEnv(c.env))
     
     return c.json({ 
@@ -183,7 +183,7 @@ auth.post('/login', async (c) => {
     isAdmin: userType === 'OWNER' ? user.isAdmin : 0,
     role: userType === 'OWNER' ? 'OWNER' : user.role,
     validUntil: clinicValidUntil,
-    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)
+    exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 7 hari (was: 24 jam)
   }, getSecretFromEnv(c.env))
 
   if (userType === 'OWNER') {
@@ -245,6 +245,43 @@ auth.get('/me', async (c) => {
         features: clinic.enabledFeatures_json ? (typeof clinic.enabledFeatures_json === 'string' ? JSON.parse(clinic.enabledFeatures_json) : clinic.enabledFeatures_json) : {}
     });
 })
+
+/**
+ * POST /auth/refresh-token
+ * Terima token lama yang masih valid, kembalikan token baru dengan TTL 7 hari.
+ * Dipakai oleh frontend untuk silent refresh sebelum token expire.
+ * Tidak perlu password — cukup token valid.
+ */
+auth.post('/refresh-token', async (c) => {
+  const payload: any = c.get('jwtPayload');
+  if (!payload?.uid) return c.json({ error: 'Token tidak valid' }, 401);
+
+  try {
+    // Verifikasi klinik masih ada dan aktif
+    const clinic: any = await c.env.DB.prepare(
+      'SELECT id, status, validUntil FROM clinics WHERE id = ?'
+    ).bind(payload.uid).first();
+
+    if (!clinic) return c.json({ error: 'Akun tidak ditemukan' }, 404);
+
+    // Terbitkan token baru dengan TTL 7 hari
+    const newToken = await sign({
+      uid: payload.uid,
+      subId: payload.subId,
+      email: payload.email,
+      status: clinic.status,
+      isAdmin: payload.isAdmin,
+      role: payload.role,
+      validUntil: clinic.validUntil,
+      exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 7 hari
+    }, getSecretFromEnv(c.env));
+
+    return c.json({ token: newToken });
+  } catch (e) {
+    console.error('refresh-token error:', e);
+    return c.json({ error: 'Gagal memperbarui token' }, 500);
+  }
+});
 
 auth.put('/renew', async (c) => {
     const payload: any = c.get('jwtPayload')

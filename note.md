@@ -564,3 +564,119 @@ Fitur pencarian *autocomplete* ICD-10 di form pemeriksaan sebelumnya menembak AP
 
 **File terkait:**
 - `src/pages/ExaminationForm.tsx`
+
+---
+
+## 32. Audit & Optimasi Masif: D1 Row Read Limit *(September 2026)*
+
+**Insiden:** 2 September 2026 pukul 05:56 WIB — seluruh akun tidak bisa login karena D1 Free Tier daily row read limit (5 juta baris/hari) habis.
+
+**Akar Masalah:**
+- 5 komponen frontend melakukan polling `setInterval` setiap **10 detik** secara bersamaan, bahkan saat tab browser di-minimize/hidden.
+- Backend `GET /examinations` menggunakan `SELECT *` sehingga kolom `extendedData_json` (odontogram JSON besar) ikut terbaca setiap polling.
+- Backend `GET /medicines` tidak ada `LIMIT`.
+- Memory leak di `Header.tsx`: `removeEventListener` tidak bekerja karena arrow function berbeda referensi — listener terus menumpuk setiap re-render.
+- Error logger (`useErrorLogger`) tidak ada rate limiting — saat D1 limit kena, error logger sendiri memperparah situasi dengan terus mengirim request ke D1.
+
+**Perbaikan:**
+
+1. **Buat `src/hooks/useVisiblePolling.ts`** — hook reusable yang otomatis pause saat tab hidden, resume + fetch langsung saat tab kembali aktif.
+2. **Buat `src/utils/apiCache.ts`** — in-memory cache dengan TTL dan prefix-based invalidation untuk mengurangi redundant API calls.
+3. **Naikkan interval polling semua komponen:**
+   - `Header.tsx`: 10s → **30s**
+   - `ExaminationList.tsx`: 10s → **30s**
+   - `PatientList.tsx`: 10s → **60s**
+   - `Dashboard.tsx`: 10s → **120s**
+   - `MedicineList.tsx`: 10s → **120s**
+4. **Tambah visibility guard** di semua polling — berhenti otomatis saat tab tidak aktif.
+5. **Fix memory leak `Header.tsx`** — simpan referensi fungsi `handleFocus` sebelum `addEventListener` agar `removeEventListener` bekerja benar.
+6. **Backend `GET /examinations`** — ganti `SELECT *` dengan kolom spesifik, skip `extendedData_json` (hanya diambil di `GET /examinations/:id`).
+7. **Backend `GET /medicines`** — tambah `LIMIT 1000`.
+8. **Buat `migrations/0005_add_performance_indexes.sql`** — 5 database index untuk query hot-path: `idx_patients_clinic_poli`, `idx_patients_clinic_created`, `idx_examinations_clinic_date`, `idx_notifications_clinic_read_role`, `idx_examinations_clinic_patient_date`.
+9. **Rate limiting `useErrorLogger`** — maks 1 log per 30 detik per error type, maks 10 log per 5 menit secara global.
+
+**Estimasi dampak penghematan:**
+- Kondisi sebelum: ~5 juta rows/hari (mentok limit)
+- Setelah perbaikan: **~80–250 ribu rows/hari** (jauh di bawah limit)
+
+**File terkait:**
+- `src/hooks/useVisiblePolling.ts` *(baru)*
+- `src/utils/apiCache.ts` *(baru)*
+- `src/components/Header.tsx`
+- `src/pages/Dashboard.tsx`
+- `src/pages/PatientList.tsx`
+- `src/pages/ExaminationList.tsx`
+- `src/pages/MedicineList.tsx`
+- `src/hooks/useErrorLogger.ts`
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `my-cloudflare-backend/migrations/0005_add_performance_indexes.sql` *(baru)*
+
+---
+
+## 33. Perbaikan Bug: Logout Mendadak / Sering Terlogout *(September 2026)*
+
+**Masalah:** Client melaporkan akun sering terlogout paksa, terutama di tengah sesi kerja.
+
+**Akar Masalah:**
+1. **JWT TTL hanya 24 jam** — klinik yang login pagi akan terlogout paksa keesokan harinya di jam yang sama, termasuk di tengah shift kerja.
+2. **Tidak ada mekanisme refresh token** — setelah token expire, satu-satunya cara adalah login ulang manual.
+3. **`api.ts` logout agresif saat 401** — semua response 401 (termasuk dari D1 timeout atau kondisi tidak terduga) memicu hapus token + redirect login, meskipun token user sebenarnya masih valid.
+4. **`refreshUser` dipanggil tanpa cek expiry** — setiap kali app dibuka, langsung hit `/auth/me`. Jika jaringan sesaat bermasalah dan backend reply 401 karena apapun, user dilogout.
+
+**Perbaikan:**
+
+1. **JWT TTL 24 jam → 7 hari** di `auth.ts` (endpoint `/login` dan `/register`).
+2. **Endpoint baru `POST /auth/refresh-token`** — terima token lama yang masih valid, terbitkan token baru 7 hari tanpa perlu password. Whitelist di status middleware `index.ts`.
+3. **`AuthContext.tsx` — rewrite session management:**
+   - Fungsi `getTokenExpiry()`: decode JWT payload di client untuk cek expiry tanpa hit backend.
+   - Saat app dibuka: cek expiry token dulu — jika sudah expire, logout bersih dengan pesan jelas sebelum hit backend.
+   - `scheduleTokenRefresh()`: jadwalkan silent refresh 1 jam sebelum token expire. Dijalankan otomatis setelah login, setelah `refreshUser`, dan saat app dibuka.
+   - `silentRefreshToken()`: hit `POST /auth/refresh-token` diam-diam. Jika gagal (network error, D1 error), **tidak logout** — token lama tetap dipakai.
+   - `refreshUser()`: tangkap error non-401 dengan diam (warn ke console), **tidak logout** saat terjadi error transient. Hanya 401 asli (dari `api.ts` middleware) yang memicu logout.
+
+**Alur baru:**
+```
+Login → Token 7 hari
+  ↓ [6 hari kemudian]
+scheduleTokenRefresh() trigger
+  ↓
+POST /auth/refresh-token → Token baru 7 hari
+  ↓
+User tidak pernah dilogout paksa selama masih aktif
+```
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/auth.ts`
+- `my-cloudflare-backend/src/index.ts`
+- `src/context/AuthContext.tsx`
+
+---
+
+## 34. Perbaikan Bug: Riwayat Kunjungan Pasien & Seluruh Menu Laporan *(September 2026)*
+
+**Masalah:** 
+1. Riwayat kunjungan pada profil pasien lama tidak muncul (kosong/crash).
+2. Menu Laporan (Harian, Bulanan, Tahunan) untuk semua data pemeriksaan tidak menampilkan data.
+
+**Akar Masalah:**
+1. Pada `PatientDetail.tsx`, data rekam medis lama memiliki kolom `date` yang bernilai `NULL` (hanya ada `createdAt`). Saat pemformatan tanggal `format(new Date(item.date), ...)`, `date-fns` melempar runtime error `RangeError: Invalid time value` sehingga timeline riwayat gagal dirender.
+2. Pada `my-cloudflare-backend/src/routes/medical.ts`, optimasi sebelumnya tidak menyertakan kolom `extendedData_json` pada `GET /examinations`. Ini menyebabkan filter laporan ANC dan Persalinan membuang semua record (karena filter wajib `extendedData_json`), serta mapping data laporan pemeriksaan umum tidak terbaca dengan lengkap.
+3. Tabel empty state di `Reports.tsx` memiliki `colSpan={5}` yang tidak sesuai dengan jumlah header kolom (7 kolom), menyebabkan layout bergeser saat data kosong.
+
+**Perbaikan:**
+1. **`my-cloudflare-backend/src/routes/medical.ts`**:
+   - Menambahkan kembali `examinations.extendedData_json` ke dalam query `SELECT` pada endpoint `GET /examinations`.
+   - Menggunakan `COALESCE(examinations.date, examinations.createdAt) as date` agar field `date` selalu terisi valid untuk data lama.
+2. **`src/pages/PatientDetail.tsx`**:
+   - Mengubah logika sorting dan rendering timeline riwayat agar menggunakan fallback `rawDate = item.date || item.createdAt`.
+   - Menggunakan fungsi `formatWibSafe(rawDate, ...)` sehingga aman dari nilai null/undefined.
+3. **`src/pages/Reports.tsx`**:
+   - Menyesuaikan `colSpan` empty state secara dinamis sesuai jenis laporan (`ANC: 19`, `Persalinan: 20`, `Umum: 7`).
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/pages/PatientDetail.tsx`
+- `src/pages/Reports.tsx`
+
+---
+

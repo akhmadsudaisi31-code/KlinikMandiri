@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { subscribeDataSync } from '../utils/dataSync';
 import { AdvancedStatsSection } from '../components/AdvancedStatsSection';
+import { useVisiblePolling } from '../hooks/useVisiblePolling';
 
 function Dashboard() {
     const [totalPatients, setTotalPatients] = useState<number>(0);
@@ -40,24 +41,15 @@ function Dashboard() {
         }
     }, [user, fetchStats]);
 
-    // Polling & Sync (Increased interval for stability)
+    // Polling: pause saat tab hidden, 120 detik → hemat D1 rows
+    useVisiblePolling(fetchStats, 120000);
+
+    // Sync dari aksi lokal (tetap pertahankan)
     useEffect(() => {
-        let isMounted = true;
-
-        const pollingInterval = setInterval(() => {
-            if (isMounted) fetchStats();
-        }, 10000);
-
-        const unsubscribe = subscribeDataSync(['dashboard', 'patients', 'examinations', 'medicines'], () => {
-            if (isMounted) fetchStats();
-        });
-
-        return () => {
-            isMounted = false;
-            clearInterval(pollingInterval);
-            unsubscribe();
-        };
+        const unsubscribe = subscribeDataSync(['dashboard', 'patients', 'examinations', 'medicines'], fetchStats);
+        return unsubscribe;
     }, [fetchStats]);
+
 
     return (
         <div key="dashboard-container" className="space-y-6 pb-20 font-sans">

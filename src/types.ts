@@ -130,6 +130,7 @@ export interface Visit {
   therapy: string; // Tindakan/Obat
   notes: string; // Catatan tambahan
   cost: number; // Biaya (opsional)
+  createdAt?: string;
   createdBy: string;
 }
 

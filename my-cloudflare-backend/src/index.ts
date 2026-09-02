@@ -119,7 +119,7 @@ app.use('/api/*', async (c, next) => {
 // 2. Clinic Status & Admin Check
 app.use('/api/*', async (c, next) => {
   const path = c.req.path
-  if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/me') || path.includes('/auth/renew') || path.includes('/auth/reset-password')
+  if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/me') || path.includes('/auth/renew') || path.includes('/auth/reset-password') || path.includes('/auth/refresh-token')
     || (path.includes('/upload/lab-result/') && c.req.method === 'GET')) {
     return next()
   }

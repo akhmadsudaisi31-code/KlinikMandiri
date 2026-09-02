@@ -617,7 +617,7 @@ function Reports() {
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                   {currentData.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-16 text-gray-500 dark:text-gray-400">
+                      <td colSpan={dataSource === 'anc' ? 19 : dataSource === 'persalinan' ? 20 : 7} className="text-center py-16 text-gray-500 dark:text-gray-400">
                         <div className="inline-block bg-gray-50 dark:bg-gray-800 p-3 rounded-full mb-2">
                           <svg className="w-6 h-6 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         </div>

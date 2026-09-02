@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useVisiblePolling } from '../hooks/useVisiblePolling';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { Patient } from '../types';
@@ -66,23 +67,13 @@ function PatientList() {
     }
   }, [user, fetchPatients]);
 
-  // Sync & Polling (Increased interval for higher stability)
+  // Polling hemat D1: hanya jalan saat tab aktif, interval 60 detik
+  useVisiblePolling(fetchPatients, 60000);
+
+  // Sync real-time antar tab/device via dataSync
   useEffect(() => {
-    let isMounted = true;
-
-    const pollingInterval = setInterval(() => {
-      if (isMounted) fetchPatients();
-    }, 10000);
-
-    const unsubscribe = subscribeDataSync(['patients'], () => {
-      if (isMounted) fetchPatients();
-    });
-
-    return () => {
-      isMounted = false;
-      clearInterval(pollingInterval);
-      unsubscribe();
-    };
+    const unsubscribe = subscribeDataSync(['patients'], fetchPatients);
+    return unsubscribe;
   }, [fetchPatients]);
 
   const handleDelete = async (patientId: string, patientName: string) => {
