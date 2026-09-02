@@ -84,26 +84,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-      const data = await fetch(
-        'https://my-cloudflare-backend.praktek-mandiri.workers.dev/api/auth/refresh-token',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (data.ok) {
-        const json = await data.json();
-        if (json.token) {
-          localStorage.setItem('token', json.token);
-          scheduleTokenRefresh(json.token);
-        }
+      const json: any = await api.post('/auth/refresh-token', {});
+      if (json?.token) {
+        localStorage.setItem('token', json.token);
+        scheduleTokenRefresh(json.token);
       }
-      // Jika gagal (server error, D1 limit, dll) → diam saja, token lama masih dipakai
-      // Hanya jika server eksplisit 401 → biarkan request berikutnya yang handle logout
     } catch {
       // Network error → diam saja, jangan logout
     }

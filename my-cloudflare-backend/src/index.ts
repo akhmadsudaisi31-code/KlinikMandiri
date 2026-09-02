@@ -65,12 +65,11 @@ app.onError((err: any, c) => {
   console.error("Global Error Handler:", err);
   const errMsg = err?.message || String(err);
   
-  // Deteksi khusus jika Cloudflare D1 Free Tier Limit terlampaui
+  // Deteksi jika Cloudflare D1 limit terlampaui
   if (errMsg.includes("exceeded D1's free tier daily row read limit") || errMsg.includes("D1_ERROR")) {
     return c.json({
-      error: "Batas akses database harian Cloudflare telah tercapai. Kuota akan di-reset otomatis pada 07:00 WIB (00:00 UTC).",
+      error: "Layanan sedang mengalami pemeliharaan sistem sementara. Silakan coba beberapa saat lagi.",
       isD1Limit: true,
-      message: errMsg,
       status: 429
     }, 429);
   }
