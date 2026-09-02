@@ -68,6 +68,20 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
           errorMsg = response.statusText;
         }
 
+        // REDIRECT KE HALAMAN MAINTENANCE JIKA D1 LIMIT TERCAPAI
+        if (
+          errorBody.isD1Limit ||
+          response.status === 429 ||
+          errorMsg.includes("exceeded D1's free tier daily row read limit") ||
+          errorMsg.includes("D1_ERROR")
+        ) {
+          if (window.location.pathname !== '/maintenance') {
+            sessionStorage.setItem('d1_limit_active', 'true');
+            window.location.href = '/maintenance';
+          }
+          throw new Error(errorMsg);
+        }
+
         // Handle duplicate examination (409) as a special typed error
         if (response.status === 409 && errorBody.code === 'DUPLICATE_EXAMINATION') {
           throw new DuplicateExaminationError(errorMsg, errorBody.existingId || '');

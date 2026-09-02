@@ -18,6 +18,13 @@ const errorLogs = new Hono<{ Bindings: Bindings }>()
 errorLogs.post('/errors', async (c) => {
   try {
     const body = await c.req.json()
+    const errMsg = body.errorMessage || ''
+    
+    // Jangan catat error D1 limit ke database agar tidak membuang write rows
+    if (errMsg.includes("exceeded D1's free tier daily row read limit") || errMsg.includes("D1_ERROR")) {
+      return c.json({ ok: true, skipped: true })
+    }
+
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
 

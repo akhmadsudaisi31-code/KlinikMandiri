@@ -30,6 +30,7 @@ import DemoCatalog from './pages/DemoCatalog'
 import Settings from './pages/Settings'
 import ProtectedRoute from './components/ProtectedRoute'
 import NotFound from './pages/NotFound'
+import MaintenanceError from './pages/MaintenanceError'
 // IMPORT PENTING: Memanggil ThemeProvider
 import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
@@ -63,6 +64,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <App>
             <Routes>
+            <Route path="/maintenance" element={<MaintenanceError />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/lupa-password" element={<ForgotPassword />} />

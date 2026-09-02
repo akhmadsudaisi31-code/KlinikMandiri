@@ -680,3 +680,31 @@ User tidak pernah dilogout paksa selama masih aktif
 
 ---
 
+## 35. Proteksi Backend & Halaman Status Error Terpadu *(September 2026)*
+
+**Kebutuhan:** 
+Ketika terjadi error kritis seperti kuota database D1 tercapai (limit hit), pengguna tidak boleh melihat tampilan error console atau layar blank, melainkan diarahkan secara rapi ke halaman status server dengan penjelasan informatif.
+
+**Perbaikan:**
+1. **Buat `src/pages/MaintenanceError.tsx`**:
+   - Halaman khusus modern bertema "Sistem Sedang Istirahat".
+   - Menjelaskan bahwa kuota harian server sedang terisi penuh dan akan di-reset otomatis setiap pukul **07:00 WIB** (00:00 UTC).
+   - Menjamin kepada user bahwa **seluruh data rekam medis tetap aman**.
+   - Dilengkapi tombol coba muat ulang dan hitung mundur auto-retry setiap 60 detik.
+2. **Routing & Redirection (`src/main.tsx` & `src/api.ts`)**:
+   - Menambahkan rute `/maintenance`.
+   - `api.ts` secara otomatis mendeteksi status `429`, flag `isD1Limit`, atau error string `D1_ERROR` dan langsung melakukan auto-redirect ke `/maintenance`.
+3. **Proteksi Backend (`my-cloudflare-backend`)**:
+   - `index.ts`: `app.onError` mendeteksi error D1 limit dan mengembalikan HTTP status `429 (Too Many Requests)` dengan pesan yang terstruktur.
+   - `routes/errorLogs.ts`: Melewati (skip) pencatatan log jika error disebabkan oleh limit D1 agar tidak membuang sisa kuota *write rows*.
+
+**File terkait:**
+- `src/pages/MaintenanceError.tsx` *(baru)*
+- `src/main.tsx`
+- `src/api.ts`
+- `my-cloudflare-backend/src/index.ts`
+- `my-cloudflare-backend/src/routes/errorLogs.ts`
+
+---
+
+

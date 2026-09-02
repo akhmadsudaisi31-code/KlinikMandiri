@@ -63,8 +63,19 @@ app.use('*', async (c, next) => {
 // 2. Global Error Masking
 app.onError((err: any, c) => {
   console.error("Global Error Handler:", err);
-  const status = err.status || 500;
+  const errMsg = err?.message || String(err);
   
+  // Deteksi khusus jika Cloudflare D1 Free Tier Limit terlampaui
+  if (errMsg.includes("exceeded D1's free tier daily row read limit") || errMsg.includes("D1_ERROR")) {
+    return c.json({
+      error: "Batas akses database harian Cloudflare telah tercapai. Kuota akan di-reset otomatis pada 07:00 WIB (00:00 UTC).",
+      isD1Limit: true,
+      message: errMsg,
+      status: 429
+    }, 429);
+  }
+
+  const status = err.status || 500;
   return c.json({ 
       error: err.message || 'Terjadi kesalahan pada server.',
       message: err.message,
