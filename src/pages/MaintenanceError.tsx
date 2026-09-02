@@ -7,7 +7,8 @@ export default function MaintenanceError() {
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          window.location.href = '/';
+          sessionStorage.removeItem('d1_limit_active');
+          window.location.href = '/login';
           return 60;
         }
         return prev - 1;
@@ -19,7 +20,7 @@ export default function MaintenanceError() {
 
   const handleRetry = () => {
     sessionStorage.removeItem('d1_limit_active');
-    window.location.href = '/';
+    window.location.href = '/login';
   };
 
   return (

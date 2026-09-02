@@ -352,11 +352,11 @@ medical.get('/examinations', async (c) => {
   }
 
   if (startDate && endDate) {
-    query += ' AND examinations.createdAt >= ? AND examinations.createdAt <= ?'
+    query += ' AND COALESCE(examinations.date, examinations.createdAt) >= ? AND COALESCE(examinations.date, examinations.createdAt) <= ?'
     params.push(startDate, endDate)
   }
   
-  query += ' ORDER BY examinations.createdAt DESC'
+  query += ' ORDER BY COALESCE(examinations.date, examinations.createdAt) DESC'
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   

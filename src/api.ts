@@ -68,12 +68,14 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
           errorMsg = response.statusText;
         }
 
-        // REDIRECT KE HALAMAN MAINTENANCE JIKA D1 LIMIT TERCAPAI
+        // REDIRECT KE HALAMAN MAINTENANCE JIKA D1 LIMIT TERCAPAI (Hanya aktif di Production)
         if (
-          errorBody.isD1Limit ||
-          response.status === 429 ||
-          errorMsg.includes("exceeded D1's free tier daily row read limit") ||
-          errorMsg.includes("D1_ERROR")
+          isProd && (
+            errorBody.isD1Limit ||
+            response.status === 429 ||
+            errorMsg.includes("exceeded D1's free tier daily row read limit") ||
+            errorMsg.includes("D1_ERROR")
+          )
         ) {
           if (window.location.pathname !== '/maintenance') {
             sessionStorage.setItem('d1_limit_active', 'true');

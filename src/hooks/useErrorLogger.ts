@@ -1,7 +1,13 @@
 import { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-const API_URL = 'https://my-cloudflare-backend.praktek-mandiri.workers.dev/api/errors';
+const isProd = typeof window !== 'undefined' && (
+  window.location.hostname === 'klinikmandiri.pages.dev' || 
+  window.location.hostname === 'satset-rm.pages.dev'
+);
+const API_URL = isProd 
+  ? 'https://my-cloudflare-backend.praktek-mandiri.workers.dev/api/errors' 
+  : (import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/errors` : 'http://localhost:8787/api/errors');
 const BUILD_VERSION = import.meta.env.VITE_BUILD_VERSION || 'unknown';
 
 // Rate limiting: cegah spam ke D1 saat terjadi error massal
