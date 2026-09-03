@@ -707,4 +707,30 @@ Ketika terjadi error kritis seperti kuota database D1 tercapai (limit hit), peng
 
 ---
 
+## 36. Perbaikan False-Positive Halaman Maintenance & SQL Query Examinations *(September 2026)*
+
+**Masalah:** 
+Setelah kuota harian Cloudflare D1 direset pada pukul 07:00 WIB, aplikasi di domain production (`klinikmandiri.pages.dev`) masih mengarahkan pengguna ke halaman `/maintenance`.
+
+**Akar Masalah:**
+1. Pada `my-cloudflare-backend/src/routes/medical.ts`, query `SELECT` pada endpoint `GET /examinations` memanggil kolom `examinations.labResultImage` yang belum ada di skema tabel D1 remote, menyebabkan SQLite melempar error `SQLITE_ERROR: no such column: examinations.labResultImage`.
+2. Pada `my-cloudflare-backend/src/index.ts`, penangkap error global sebelumnya memeriksa string `D1_ERROR` secara umum sehingga seluruh error SQLite (termasuk syntax/column error) dianggap sebagai *Daily Rate Limit Exceeded* dan membalas status HTTP `429`, yang memicu frontend berpindah ke halaman `/maintenance`.
+
+**Perbaikan:**
+1. **`my-cloudflare-backend/src/routes/medical.ts`**:
+   - Menghapus kolom `labResultImage` dari klausa `SELECT` di endpoint `GET /examinations`.
+   - Memastikan filter tanggal menggunakan `COALESCE(examinations.date, examinations.createdAt)` agar seluruh data pemeriksaan lama dan baru terbaca akurat.
+2. **`my-cloudflare-backend/src/index.ts`**:
+   - Memperketat regex/string matching error handler agar **hanya merespons 429 jika pesan error eksplisit menyatakan kuota habis** (`exceeded D1's free tier daily row read limit` atau `daily row read limit`).
+3. **`src/api.ts`**:
+   - Menjaga agar redirect ke `/maintenance` hanya aktif di environment production dan hanya terjadi pada limit kuota yang valid.
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `my-cloudflare-backend/src/index.ts`
+- `src/api.ts`
+
+---
+
+
 
