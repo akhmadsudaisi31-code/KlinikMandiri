@@ -65,8 +65,8 @@ app.onError((err: any, c) => {
   console.error("Global Error Handler:", err);
   const errMsg = err?.message || String(err);
   
-  // Deteksi jika Cloudflare D1 limit terlampaui
-  if (errMsg.includes("exceeded D1's free tier daily row read limit") || errMsg.includes("D1_ERROR")) {
+  // Deteksi HANYA jika Cloudflare D1 daily quota limit terlampaui
+  if (errMsg.includes("exceeded D1's free tier daily row read limit") || errMsg.includes("daily row read limit")) {
     return c.json({
       error: "Layanan sedang mengalami pemeliharaan sistem sementara. Silakan coba beberapa saat lagi.",
       isD1Limit: true,

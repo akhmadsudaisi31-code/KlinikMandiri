@@ -338,7 +338,7 @@ medical.get('/examinations', async (c) => {
            examinations.tindakan, examinations.edukasi, examinations.rencanaTindakLanjut,
            examinations.keluhanUtama, examinations.medicines_json, examinations.extendedData_json,
            examinations.createdAt, COALESCE(examinations.date, examinations.createdAt) as date,
-           examinations.updatedAt, examinations.labResultImage,
+           examinations.updatedAt,
            patients.namaSuami, patients.ageDisplay, patients.address, patients.occupation 
     FROM examinations 
     LEFT JOIN patients ON examinations.patientId = patients.id AND patients.clinicId = examinations.clinicId 
