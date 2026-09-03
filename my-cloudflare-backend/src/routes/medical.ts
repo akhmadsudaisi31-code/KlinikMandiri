@@ -301,7 +301,11 @@ medical.get('/examinations/today', async (c) => {
   const endIso = new Date(`${wibTimeStr}T23:59:59.999+07:00`).toISOString()
   
   const { results } = await c.env.DB.prepare(
-    "SELECT * FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ? ORDER BY createdAt DESC"
+    `SELECT id, patientId, patientName, patientRm, diagnosa, biaya, tindakan,
+            keluhanUtama, medicines_json, createdAt, date, updatedAt
+     FROM examinations 
+     WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ? 
+     ORDER BY createdAt DESC`
   ).bind(clinicId, startIso, endIso).all()
   
   const formatted = results.map((r: any) => ({
@@ -337,8 +341,7 @@ medical.get('/examinations', async (c) => {
            examinations.patientRm, examinations.diagnosa, examinations.icd10, examinations.biaya,
            examinations.tindakan, examinations.edukasi, examinations.rencanaTindakLanjut,
            examinations.keluhanUtama, examinations.medicines_json, examinations.extendedData_json,
-           examinations.createdAt, COALESCE(examinations.date, examinations.createdAt) as date,
-           examinations.updatedAt,
+           examinations.createdAt, examinations.date, examinations.updatedAt,
            patients.namaSuami, patients.ageDisplay, patients.address, patients.occupation 
     FROM examinations 
     LEFT JOIN patients ON examinations.patientId = patients.id AND patients.clinicId = examinations.clinicId 
@@ -351,17 +354,22 @@ medical.get('/examinations', async (c) => {
     params.push(patientId)
   }
 
+  // Filter menggunakan createdAt langsung agar index idx_examinations_clinic_created aktif
+  // (COALESCE di WHERE/ORDER BY akan menonaktifkan index SQLite)
   if (startDate && endDate) {
-    query += ' AND COALESCE(examinations.date, examinations.createdAt) >= ? AND COALESCE(examinations.date, examinations.createdAt) <= ?'
+    query += ' AND examinations.createdAt >= ? AND examinations.createdAt <= ?'
     params.push(startDate, endDate)
   }
   
-  query += ' ORDER BY COALESCE(examinations.date, examinations.createdAt) DESC'
+  // ORDER BY menggunakan kolom yang sudah ada index-nya
+  query += ' ORDER BY examinations.createdAt DESC'
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   
   const formatted = results.map((r: any) => ({
     ...r,
+    // Tampilkan date: pakai kolom date jika ada, fallback ke createdAt (untuk display saja, bukan filter)
+    date: r.date || r.createdAt,
     medicines: JSON.parse(r.medicines_json || '[]'),
     cost: r.biaya,
     diagnosis: r.diagnosa

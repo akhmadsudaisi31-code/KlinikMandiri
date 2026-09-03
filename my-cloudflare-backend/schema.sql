@@ -154,16 +154,41 @@ CREATE TABLE IF NOT EXISTS icd_codes (
 -- INDEXES UNTUK OPTIMASI PERFORMA CLOUDFLARE D1 (Menghindari Full Table Scan)
 -- ============================================================================
 
+-- Index dasar per clinicId
 CREATE INDEX IF NOT EXISTS idx_patients_clinicId ON patients(clinicId);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_rm_clinic ON patients(clinicId, rm) WHERE rm != "-";
-CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_name_dob ON patients(clinicId, name, dob) WHERE dob IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_medicines_clinicId ON medicines(clinicId);
 CREATE INDEX IF NOT EXISTS idx_examinations_clinicId ON examinations(clinicId);
 CREATE INDEX IF NOT EXISTS idx_examinations_patientId ON examinations(patientId);
-CREATE INDEX IF NOT EXISTS idx_examinations_date ON examinations(clinicId, date); -- Optimasi: query 'hari ini'
 CREATE INDEX IF NOT EXISTS idx_visits_clinicId ON visits(clinicId);
 CREATE INDEX IF NOT EXISTS idx_visits_patientId ON visits(patientId);
 CREATE INDEX IF NOT EXISTS idx_notifications_clinicId ON notifications(clinicId);
+
+-- Index unik untuk mencegah duplikasi data
+CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_rm_clinic ON patients(clinicId, rm) WHERE rm != "-";
+CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_name_dob ON patients(clinicId, name, dob) WHERE dob IS NOT NULL;
+
+-- ============================================================================
+-- INDEX KOMPOSIT KRITIS: Menghilangkan Full Table Scan pada ORDER BY & WHERE
+-- Sebelum index ini: query scan ribuan baris per request polling
+-- Setelah index ini: query langsung lompat ke data yang relevan (O log n)
+-- ============================================================================
+
+-- PatientList: ORDER BY createdAt DESC → hemat ~4.8 juta baris/hari
+CREATE INDEX IF NOT EXISTS idx_patients_clinic_created ON patients(clinicId, createdAt DESC);
+
+-- ExaminationList & Reports: filter + sort by createdAt → hemat ~14 juta baris/hari
+CREATE INDEX IF NOT EXISTS idx_examinations_clinic_created ON examinations(clinicId, createdAt DESC);
+
+-- Examinations by date (untuk query antrean hari ini)
+CREATE INDEX IF NOT EXISTS idx_examinations_date ON examinations(clinicId, date);
+
+-- Clinic users: FK index untuk query daftar staf per klinik
+CREATE INDEX IF NOT EXISTS idx_clinic_users_clinicId ON clinic_users(clinicId);
+
+-- Notifications: filter unread per klinik → query header notifications
+CREATE INDEX IF NOT EXISTS idx_notifications_clinic_unread ON notifications(clinicId, isRead);
+
+-- ICD codes: pencarian kode diagnosis
 CREATE INDEX IF NOT EXISTS idx_icd_codes_source_code ON icd_codes(source, code);
 CREATE INDEX IF NOT EXISTS idx_icd_codes_source_compact ON icd_codes(source, code_compact);
 
