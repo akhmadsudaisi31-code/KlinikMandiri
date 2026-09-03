@@ -56,7 +56,7 @@ const getEmailTemplate = (type: 'success' | 'rejected', clinicName: string): str
     : `Mohon maaf, aktivasi akun klinik <b>${clinicName}</b> saat ini tidak dapat kami setujui. Hal ini mungkin terjadi jika Anda belum mentransfer nominal yang sesuai atau bukti pembayaran tidak valid.`;
   
   const ctaText = isSuccess ? 'Masuk ke Dashboard' : 'Hubungi Dukungan CS (WA)';
-  const ctaLink = isSuccess ? 'https://satset-rm.pages.dev/login' : 'https://wa.me/6281234567890';
+  const ctaLink = isSuccess ? 'https://klinikmandiri.pages.dev/login' : 'https://wa.me/6281234567890';
 
   return `
     <!DOCTYPE html>

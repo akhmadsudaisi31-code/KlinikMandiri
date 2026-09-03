@@ -16,18 +16,15 @@ function Dashboard() {
 
     const fetchStats = useCallback(async () => {
         try {
-            const [patientsCount, examsCount, medicinesCount, announce] = await Promise.all([
-                api.get('/patients/count'),
-                api.get('/examinations/today/count'),
-                api.get('/medicines/count'),
-                api.get('/broadcast').catch(() => null)
-            ]);
-            
-            setTotalPatients(patientsCount?.total || 0);
-            setTodayExaminations(examsCount?.total || 0);
-            setMedicineStock(medicinesCount?.total || 0);
-            if (announce && announce.message) {
-                setAnnouncement(announce.message);
+            // ARSITEKTUR HEMAT D1: Panggil 1 endpoint terpadu (1 network roundtrip, 1 unified D1 batch)
+            const stats: any = await api.get('/dashboard/stats');
+            if (stats) {
+                setTotalPatients(stats.totalPatients || 0);
+                setTodayExaminations(stats.todayExaminations || 0);
+                setMedicineStock(stats.medicineStock || 0);
+                if (stats.announcement) {
+                    setAnnouncement(stats.announcement);
+                }
             }
         } catch (e) {
             console.error("Gagal mengambil data dashboard", e);

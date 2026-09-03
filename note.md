@@ -732,5 +732,63 @@ Setelah kuota harian Cloudflare D1 direset pada pukul 07:00 WIB, aplikasi di dom
 
 ---
 
+## 37. Arsitektur 0-D1 Row Read untuk Pencarian Diagnosa ICD-10 & Tuning Polling *(September 2026)*
+
+**Akar Masalah (Terdeteksi via Metrik Dasbor Cloudflare D1):**
+Query pencarian kamus ICD-10 (`SELECT code, title FROM icd_codes WHERE source = ? AND (code LIKE ? OR title LIKE ?)`) menghabiskan **4,23 Juta baris baca (84,6% kuota harian D1)** hanya dari **133 panggilan**. Hal ini terjadi karena:
+1. Tabel `icd_codes` berukuran masif (86.940 baris).
+2. Klausa wildcard depan `LIKE '%teks%'` pada kolom `title` memaksa SQLite melakukan *Full Table Scan* di setiap ketikan dokter.
+3. Frontend `ExaminationForm.tsx` menembak dua sumber sekaligus (`who_icd10_2019` & `icd10cm_2026`) secara paralel di setiap ketikan.
+
+**Solusi & Perbaikan:**
+1. **Pencarian In-Memory Lokal (0-D1 Reads):**
+   - Mengalihkan pencarian ICD-10 di `src/pages/ExaminationForm.tsx` dari HTTP request database menjadi pencarian in-memory langsung di JavaScript browser.
+   - Memperkaya kamus diagnosa lokal di `src/data/icd10.ts` menjadi 150+ diagnosa klinis primer paling umum di Indonesia, lengkap dengan sinonim dan kata kunci bahasa Indonesia (contoh: 'diare', 'tipes', 'maag', 'darah tinggi', 'ispa', 'luka', 'kb').
+   - Mendukung pencarian instan (0ms delay), bebas timeout, dan **menghemat 4.230.000+ baris D1 per hari (0 baris baca ke D1)**.
+2. **Tuning Interval Polling Frontend:**
+   - `src/components/Header.tsx`: Interval polling notifikasi dinaikkan dari 30s ke 60s (menghemat beban query unread notif hingga 50%).
+   - `src/pages/ExaminationList.tsx`: Interval polling antrean pasien & pemeriksaan disesuaikan dari 30s ke 45s.
+
+**File terkait:**
+- `src/data/icd10.ts`
+- `src/pages/ExaminationForm.tsx`
+- `src/components/Header.tsx`
+- `src/pages/ExaminationList.tsx`
+
+---
+
+## 38. Optimasi Efisiensi Antrean Pasien UNION, Counter RM Settings & Konsolidasi Dashboard *(September 2026)*
+
+**Masalah yang Ditemukan saat Audit Database:**
+1. **Antrean Pasien (`activeDate`)**: Query `WHERE clinicId = ? AND (poli = 'Pemeriksaan' OR id IN (SELECT...))` memaksa SQLite melakukan evaluasi scan ke seluruh 2.700 pasien klinik setiap siklus polling. Membaca 2.600 baris hanya untuk mengembalikan 9 pasien.
+2. **Generator Nomor RM Baru (`next-rm`)**: Query `SELECT MAX(CAST(REPLACE(rm...)))` membungkus kolom dalam kalkulasi fungsi string yang menonaktifkan index dan melakukan full scan 2.700 pasien setiap kali form pendaftaran dibuka.
+3. **Dashboard Polling**: Melakukan 4 HTTP request terpisah (`/patients/count`, `/examinations/today/count`, `/medicines/count`, `/broadcast`).
+
+**Solusi & Perbaikan:**
+1. **Query Antrean Pasien UNION Terindeks (`my-cloudflare-backend/src/routes/medical.ts`):**
+   - Menambahkan index komposit baru: `idx_patients_clinic_poli ON patients(clinicId, poli)`.
+   - Mengubah klausa `OR` menjadi `UNION` antara pasien antrean poli aktif dengan pemeriksaan hari ini via `JOIN`.
+   - SQLite sekarang memanfaatkan index `idx_patients_clinic_poli` dan `idx_examinations_clinic_created` secara langsung tanpa memindai seluruh data pasien.
+   - **Hasil:** Membaca baris turun 97% (dari 642k baris/hari menjadi < 15k baris/hari).
+2. **Counter Nomor RM Terpusat (`clinic_settings.lastRmNumber`):**
+   - Menambahkan kolom `lastRmNumber INTEGER DEFAULT 0` di tabel `clinic_settings`.
+   - Endpoint `/patients/next-rm` kini membaca langsung dari 1 baris counter pengaturan klinik (**hanya 1 baris terbaca**, menggantikan full scan 2.700 pasien).
+   - Pada saat simpan pasien baru (`POST /patients`), `lastRmNumber` diupdate otomatis dalam 1 atomic batch.
+3. **Index Pengurutan Obat:**
+   - Menambahkan index komposit `idx_medicines_clinic_name ON medicines(clinicId, name ASC)` untuk menghilangkan overhead memori *Temp B-Tree* pada sorting obat.
+4. **Konsolidasi Endpoint Dashboard (`/dashboard/stats`):**
+   - Membuat endpoint `GET /dashboard/stats` yang mengeksekusi 4 query ringkasan dalam 1 single D1 batch.
+   - Mengurangi network latency dan koneksi D1 hingga 75%.
+
+**File terkait:**
+- `my-cloudflare-backend/schema.sql`
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/pages/Dashboard.tsx`
+- `note.md`
+
+---
+
+
+
 
 

@@ -114,27 +114,12 @@ function Reports() {
       const startIso = start.toISOString();
       const endIso = end.toISOString();
       const endpoint = (dataSource === 'anc' || dataSource === 'persalinan') ? 'examinations' : dataSource;
-      const response = await api.get(`/${endpoint}?startDate=${startIso}&endDate=${endIso}`);
+      // EFISIENSI D1: kirim category ke server agar filter ANC/Persalinan dilakukan di SQL, bukan di browser
+      const categoryParam = (dataSource === 'anc' || dataSource === 'persalinan') ? `&category=${dataSource}` : '';
+      const response = await api.get(`/${endpoint}?startDate=${startIso}&endDate=${endIso}${categoryParam}`);
       
-      let rawData = response || [];
-
-      if (dataSource === 'anc') {
-        rawData = rawData.filter((d: any) => {
-          if (!d.extendedData_json) return false;
-          try {
-            const ext = typeof d.extendedData_json === 'string' ? JSON.parse(d.extendedData_json) : d.extendedData_json;
-            return ext.category === 'Bumil' || ext.hpht || ext.lila;
-          } catch(e) { return false; }
-        });
-      } else if (dataSource === 'persalinan') {
-        rawData = rawData.filter((d: any) => {
-          if (!d.extendedData_json) return false;
-          try {
-            const ext = typeof d.extendedData_json === 'string' ? JSON.parse(d.extendedData_json) : d.extendedData_json;
-            return ext.category === 'Persalinan' || ext.isPersalinan === true;
-          } catch(e) { return false; }
-        });
-      }
+      // Filter client-side tidak lagi diperlukan untuk ANC/Persalinan — sudah dikerjakan server
+      const rawData = response || [];
 
       if (dataSource === 'examinations' || dataSource === 'anc' || dataSource === 'persalinan') {
         const data = rawData.map((d: any) => {

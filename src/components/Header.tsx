@@ -156,7 +156,7 @@ function Header() {
 
     const interval = setInterval(() => {
         if (isMounted && document.visibilityState !== 'hidden') fetchNotifications(true);
-    }, 30000); // 30s for notifications
+    }, 60000); // 60s for notifications (dihemat dari 30s)
 
     const handleWakeUp = () => {
       if (document.visibilityState === 'visible' && isMounted) {

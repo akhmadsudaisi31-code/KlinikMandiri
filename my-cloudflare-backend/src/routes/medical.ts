@@ -44,8 +44,23 @@ medical.get('/patients', async (c) => {
   if (activeDate) {
     const startIso = new Date(`${activeDate}T00:00:00+07:00`).toISOString()
     const endIso = new Date(`${activeDate}T23:59:59.999+07:00`).toISOString()
-    query += ` AND (poli = 'Pemeriksaan' OR id IN (SELECT patientId FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ?))`
-    params.push(clinicId, startIso, endIso)
+    
+    // ARSITEKTUR HEMAT D1: Ganti klausa OR menjadi UNION agar SQLite dapat menggunakan
+    // index idx_patients_clinic_poli dan idx_examinations_clinic_created secara langsung.
+    // Menghilangkan scan 2.700 pasien per polling antrean!
+    const unionQuery = `
+      SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt
+      FROM patients 
+      WHERE clinicId = ? AND poli = 'Pemeriksaan'
+      UNION
+      SELECT p.id, p.rm, p.name, p.namaSuami, p.gender, p.category, p.address, p.occupation, p.dob, p.ageDisplay, p.nik, p.poli, p.allergies, p.keluhan, p.createdAt, p.updatedAt
+      FROM examinations e
+      JOIN patients p ON e.patientId = p.id AND p.clinicId = e.clinicId
+      WHERE e.clinicId = ? AND e.createdAt >= ? AND e.createdAt <= ?
+      ORDER BY createdAt DESC
+    `
+    const { results } = await c.env.DB.prepare(unionQuery).bind(clinicId, clinicId, startIso, endIso).all()
+    return c.json(results)
   }
 
   // FIX KRITIS: Tidak lagi ada hard-limit LIMIT 1000 yang memotong pasien lama!
@@ -70,22 +85,30 @@ medical.get('/patients/count', async (c) => {
 medical.get('/patients/next-rm', async (c) => {
   const clinicId = getClinicId(c)
   
-  // FIX KRITIS: Gunakan MAX rm numerik, bukan COUNT(*)
-  // COUNT berubah saat pasien dihapus -> menyebabkan nomor RM duplikat/konflik
-  // MAX selalu mengembalikan nomor terbesar yang pernah digunakan -> aman
-  const maxResult: any = await c.env.DB.prepare(
-    `SELECT MAX(CAST(REPLACE(REPLACE(rm, 'RM-', ''), '-', '') AS INTEGER)) as maxNum 
-     FROM patients 
-     WHERE clinicId = ? AND rm LIKE 'RM-%'`
+  // ARSITEKTUR HEMAT D1: Baca langsung counter lastRmNumber dari clinic_settings (1 baris saja).
+  // Jauh lebih cepat dan hemat dibanding memindai ribuan pasien dengan MAX(REPLACE(rm)).
+  const settings: any = await c.env.DB.prepare(
+    'SELECT lastRmNumber FROM clinic_settings WHERE clinicId = ?'
   ).bind(clinicId).first()
 
-  // Fallback ke COUNT jika tidak ada pasien dengan format RM-XXXX
-  let nextNum = (maxResult?.maxNum || 0) + 1
-  if (!maxResult?.maxNum) {
-    const count: any = await c.env.DB.prepare(
-      'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
+  let nextNum = 1
+  if (settings && typeof settings.lastRmNumber === 'number' && settings.lastRmNumber > 0) {
+    nextNum = settings.lastRmNumber + 1
+  } else {
+    // Fallback pertama kali jika setting belum terinisialisasi: cari max lalu simpan
+    const maxResult: any = await c.env.DB.prepare(
+      `SELECT MAX(CAST(REPLACE(REPLACE(rm, 'RM-', ''), '-', '') AS INTEGER)) as maxNum 
+       FROM patients 
+       WHERE clinicId = ? AND rm LIKE 'RM-%'`
     ).bind(clinicId).first()
-    nextNum = (count?.total || 0) + 1
+    nextNum = (maxResult?.maxNum || 0) + 1
+    
+    // Inisialisasi ke clinic_settings untuk request berikutnya
+    try {
+      await c.env.DB.prepare(
+        'UPDATE clinic_settings SET lastRmNumber = ? WHERE clinicId = ?'
+      ).bind(maxResult?.maxNum || 0, clinicId).run()
+    } catch(e) {}
   }
 
   const rm = `RM-${String(nextNum).padStart(4, '0')}`
@@ -96,7 +119,8 @@ medical.get('/patients/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
   const result = await c.env.DB.prepare(
-    'SELECT * FROM patients WHERE id = ? AND clinicId = ?'
+    // EFISIENSI D1: kolom eksplisit, tidak lagi SELECT *
+    'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt FROM patients WHERE id = ? AND clinicId = ?'
   ).bind(id, clinicId).first()
   return c.json(result)
 })
@@ -106,30 +130,28 @@ medical.post('/patients', async (c) => {
   const body = await c.req.json()
 
   let finalRm = body.rm;
+  let assignedNum: number | null = null;
 
   // --- CEK ATAU BUAT RM ---
   if (finalRm === 'AUTO') {
-     // FIX KRITIS: Gunakan MAX(rm) bukan COUNT(*) sebagai titik awal.
-     // COUNT berkurang saat pasien dihapus → menyebabkan RM duplikat/konflik.
-     // MAX selalu mengembalikan angka RM tertinggi yang pernah ada → aman.
-     const maxResult: any = await c.env.DB.prepare(
-       `SELECT MAX(CAST(REPLACE(rm, 'RM-', '') AS INTEGER)) as maxNum 
-        FROM patients 
-        WHERE clinicId = ? AND rm LIKE 'RM-%'`
+     // ARSITEKTUR HEMAT D1: Ambil nomor dari clinic_settings counter
+     const settings: any = await c.env.DB.prepare(
+       'SELECT lastRmNumber FROM clinic_settings WHERE clinicId = ?'
      ).bind(clinicId).first();
 
-     let nextNum: number;
-     if (maxResult?.maxNum) {
-       nextNum = maxResult.maxNum + 1;
+     let nextNum = 1;
+     if (settings && typeof settings.lastRmNumber === 'number' && settings.lastRmNumber > 0) {
+       nextNum = settings.lastRmNumber + 1;
      } else {
-       // Fallback: belum ada pasien dengan format RM-XXXX sama sekali
-       const count: any = await c.env.DB.prepare(
-         'SELECT COUNT(*) as total FROM patients WHERE clinicId = ?'
+       const maxResult: any = await c.env.DB.prepare(
+         `SELECT MAX(CAST(REPLACE(rm, 'RM-', '') AS INTEGER)) as maxNum 
+          FROM patients 
+          WHERE clinicId = ? AND rm LIKE 'RM-%'`
        ).bind(clinicId).first();
-       nextNum = (count?.total || 0) + 1;
+       nextNum = (maxResult?.maxNum || 0) + 1;
      }
 
-     // Loop safety-net: pastikan RM yang dipilih benar-benar belum dipakai
+     // Safety-net: pastikan RM yang dipilih benar-benar belum dipakai
      let success = false;
      let attempts = 0;
      while (!success && attempts < 20) {
@@ -137,12 +159,12 @@ medical.post('/patients', async (c) => {
          const existing = await c.env.DB.prepare('SELECT id FROM patients WHERE clinicId = ? AND rm = ?').bind(clinicId, finalRm).first();
          if (!existing) {
              success = true;
+             assignedNum = nextNum;
          } else {
              nextNum++;
              attempts++;
          }
      }
-
      if (!success) {
          return c.json({ error: 'Mohon maaf, sistem kesulitan membuat nomor RM otomatis. Silakan coba masukkan nomor secara manual.' }, 400);
      }
@@ -172,13 +194,30 @@ medical.post('/patients', async (c) => {
 
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
-  await c.env.DB.prepare(
-    `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, nik, poli, allergies, keluhan, createdBy, createdAt, updatedAt) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    id, clinicId, finalRm, body.name, body.namaSuami || null, body.gender, body.category, 
-    body.address, body.occupation || null, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, clinicId, now, now
-  ).run()
+  
+  // Batch insert patient dan update lastRmNumber secara atomik jika ada auto-assigned number
+  if (assignedNum) {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, nik, poli, allergies, keluhan, createdBy, createdAt, updatedAt) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        id, clinicId, finalRm, body.name, body.namaSuami || null, body.gender, body.category, 
+        body.address, body.occupation || null, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, clinicId, now, now
+      ),
+      c.env.DB.prepare(
+        'UPDATE clinic_settings SET lastRmNumber = MAX(COALESCE(lastRmNumber, 0), ?) WHERE clinicId = ?'
+      ).bind(assignedNum, clinicId)
+    ])
+  } else {
+    await c.env.DB.prepare(
+      `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, occupation, dob, ageYears, ageMonths, ageDisplay, nik, poli, allergies, keluhan, createdBy, createdAt, updatedAt) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      id, clinicId, finalRm, body.name, body.namaSuami || null, body.gender, body.category, 
+      body.address, body.occupation || null, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, clinicId, now, now
+    ).run()
+  }
   
   return c.json({ id })
 })
@@ -335,6 +374,8 @@ medical.get('/examinations', async (c) => {
   const patientId = c.req.query('patientId')
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
+  // EFISIENSI D1: filter kategori di server (ANC/Persalinan), bukan di client
+  const category = c.req.query('category') // 'anc' | 'persalinan' | kosong = semua
   
   let query = `
     SELECT examinations.id, examinations.clinicId, examinations.patientId, examinations.patientName,
@@ -359,6 +400,13 @@ medical.get('/examinations', async (c) => {
   if (startDate && endDate) {
     query += ' AND examinations.createdAt >= ? AND examinations.createdAt <= ?'
     params.push(startDate, endDate)
+  }
+
+  // Filter kategori di sisi server agar tidak mengirim semua data ke client
+  if (category === 'anc') {
+    query += ` AND (examinations.extendedData_json LIKE '%"category":"Bumil"%' OR examinations.extendedData_json LIKE '%"hpht"%' OR examinations.extendedData_json LIKE '%"lila"%')`
+  } else if (category === 'persalinan') {
+    query += ` AND (examinations.extendedData_json LIKE '%"category":"Persalinan"%' OR examinations.extendedData_json LIKE '%"isPersalinan":true%')`
   }
   
   // ORDER BY menggunakan kolom yang sudah ada index-nya
@@ -483,7 +531,8 @@ medical.get('/visits', async (c) => {
   const clinicId = getClinicId(c)
   const patientId = c.req.query('patientId')
   const { results } = await c.env.DB.prepare(
-    'SELECT * FROM visits WHERE clinicId = ? AND patientId = ? ORDER BY date DESC'
+    // EFISIENSI D1: kolom eksplisit
+    'SELECT id, diagnosis, therapy, notes, cost, date, createdAt, updatedAt FROM visits WHERE clinicId = ? AND patientId = ? ORDER BY date DESC'
   ).bind(clinicId, patientId).all()
   return c.json(results)
 })
@@ -608,6 +657,40 @@ medical.get('/stats/advanced', async (c) => {
     diagnoses: diagnoses.results,
     gender: gender.results
   })
+})
+
+// ARSITEKTUR HEMAT D1: Endpoint gabungan 4-in-1 untuk Dashboard
+// Menghilangkan 4 network roundtrip dan mengeksekusi dalam 1 batch D1 terpadu
+medical.get('/dashboard/stats', async (c) => {
+  const clinicId = getClinicId(c)
+  const now = new Date()
+  const wibTimeStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now)
+  const startIso = new Date(`${wibTimeStr}T00:00:00+07:00`).toISOString()
+  const endIso = new Date(`${wibTimeStr}T23:59:59.999+07:00`).toISOString()
+
+  try {
+    const [patientsRes, examsRes, medicinesRes, broadcastRes] = await c.env.DB.batch([
+      c.env.DB.prepare('SELECT COUNT(*) as total FROM patients WHERE clinicId = ?').bind(clinicId),
+      c.env.DB.prepare('SELECT COUNT(*) as total FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ?').bind(clinicId, startIso, endIso),
+      c.env.DB.prepare('SELECT COUNT(*) as total FROM medicines WHERE clinicId = ?').bind(clinicId),
+      c.env.DB.prepare('SELECT message FROM broadcasts ORDER BY createdAt DESC LIMIT 1')
+    ])
+
+    const totalPatients = (patientsRes.results?.[0] as any)?.total || 0
+    const todayExaminations = (examsRes.results?.[0] as any)?.total || 0
+    const medicineStock = (medicinesRes.results?.[0] as any)?.total || 0
+    const announcement = (broadcastRes.results?.[0] as any)?.message || null
+
+    return c.json({
+      totalPatients,
+      todayExaminations,
+      medicineStock,
+      announcement
+    })
+  } catch (err: any) {
+    console.error("Dashboard stats error:", err)
+    return c.json({ totalPatients: 0, todayExaminations: 0, medicineStock: 0, announcement: null })
+  }
 })
 
 export default medical

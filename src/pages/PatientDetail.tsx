@@ -46,18 +46,15 @@ function PatientDetail() {
 
     const fetchData = async () => {
       try {
-        const p = await api.get(`/patients/${id}`);
+        // EFISIENSI: 3 request paralel (bukan serial) — hemat ~200ms latensi per buka halaman
+        const [p, v, e] = await Promise.all([
+          api.get(`/patients/${id}`),
+          api.get(`/visits?patientId=${id}`),
+          api.get(`/examinations?patientId=${id}`)
+        ]);
         if (isMounted) {
           setPatient(p);
-        }
-
-        const v = await api.get(`/visits?patientId=${id}`);
-        if (isMounted) {
           setVisits(v || []);
-        }
-
-        const e = await api.get(`/examinations?patientId=${id}`);
-        if (isMounted) {
           setExaminations(e || []);
         }
       } catch (e: any) {

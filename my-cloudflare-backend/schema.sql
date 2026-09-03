@@ -192,6 +192,12 @@ CREATE INDEX IF NOT EXISTS idx_notifications_clinic_unread ON notifications(clin
 CREATE INDEX IF NOT EXISTS idx_icd_codes_source_code ON icd_codes(source, code);
 CREATE INDEX IF NOT EXISTS idx_icd_codes_source_compact ON icd_codes(source, code_compact);
 
+-- Index antrean poli: mempercepat query antrean hari ini tanpa full table scan
+CREATE INDEX IF NOT EXISTS idx_patients_clinic_poli ON patients(clinicId, poli);
+
+-- Index obat: menghilangkan Temp B-Tree pada ORDER BY name ASC
+CREATE INDEX IF NOT EXISTS idx_medicines_clinic_name ON medicines(clinicId, name ASC);
+
 -- Tabel Setting Klinik
 CREATE TABLE IF NOT EXISTS clinic_settings (
     clinicId TEXT PRIMARY KEY,
@@ -201,6 +207,7 @@ CREATE TABLE IF NOT EXISTS clinic_settings (
     clinicAddress TEXT,
     clinicPhone TEXT,
     lastSickLeaveNumber INTEGER DEFAULT 0,
+    lastRmNumber INTEGER DEFAULT 0,
     sickLeaveTemplate TEXT,
     enabledFeatures_json TEXT DEFAULT '{"anc": true, "kb": true, "immunization": true, "dental": true}',
     updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,

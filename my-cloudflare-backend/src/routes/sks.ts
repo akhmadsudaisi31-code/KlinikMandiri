@@ -14,7 +14,8 @@ sks.get('/', async (c) => {
   const clinicId = getClinicId(c)
   
   const results = await c.env.DB.prepare(
-    'SELECT * FROM sks_records WHERE clinicId = ? ORDER BY createdAt DESC'
+    // EFISIENSI D1: kolom eksplisit + LIMIT 200, tidak lagi SELECT * tanpa batas
+    'SELECT id, patientName, patientRm, diagnosis, occupation, address, startDate, endDate, days, ticketNumber, createdAt FROM sks_records WHERE clinicId = ? ORDER BY createdAt DESC LIMIT 200'
   ).bind(clinicId).all()
   
   return c.json(results.results)

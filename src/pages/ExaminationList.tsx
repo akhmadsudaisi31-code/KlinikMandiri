@@ -120,9 +120,9 @@ function ExaminationList() {
         fetchSettings();
     }, [user, selectedDateValue]); // Only re-fetch on identity or date change
 
-    // Polling (tab-visible only, paused when print modal is open)
-    useVisiblePolling(() => fetchPatients(false), 30000, !isPrintModalOpen);
-    useVisiblePolling(fetchExaminations, 30000, !isPrintModalOpen);
+    // Polling (tab-visible only, paused when print modal is open, 45s interval)
+    useVisiblePolling(() => fetchPatients(false), 45000, !isPrintModalOpen);
+    useVisiblePolling(fetchExaminations, 45000, !isPrintModalOpen);
 
     // Sync Subscriptions
     useEffect(() => {

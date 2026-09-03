@@ -45,7 +45,7 @@ Demikian surat keterangan ini dibuat untuk dipergunakan sebagaimana mestinya.`,
     }
     
     await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO clinic_settings (clinicId, clinicName, doctorName, doctorNip, clinicAddress, clinicPhone, lastSickLeaveNumber, sickLeaveTemplate, enabledFeatures_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT OR IGNORE INTO clinic_settings (clinicId, clinicName, doctorName, doctorNip, clinicAddress, clinicPhone, lastSickLeaveNumber, lastRmNumber, sickLeaveTemplate, enabledFeatures_json) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)'
     ).bind(
       defaultSettings.clinicId,
       defaultSettings.clinicName,
@@ -91,9 +91,10 @@ settings.put('/settings', async (c) => {
     await c.env.DB.prepare(
       `INSERT INTO clinic_settings (
         clinicId, clinicName, doctorName, doctorNip, 
-        clinicAddress, clinicPhone, lastSickLeaveNumber, 
+        clinicAddress, clinicPhone, lastSickLeaveNumber,
+        lastRmNumber,
         sickLeaveTemplate, enabledFeatures_json, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(clinicId) DO UPDATE SET 
         clinicName = excluded.clinicName,
         doctorName = excluded.doctorName,
@@ -103,7 +104,8 @@ settings.put('/settings', async (c) => {
         lastSickLeaveNumber = excluded.lastSickLeaveNumber,
         sickLeaveTemplate = excluded.sickLeaveTemplate,
         enabledFeatures_json = excluded.enabledFeatures_json,
-        updatedAt = CURRENT_TIMESTAMP`
+        updatedAt = CURRENT_TIMESTAMP
+        /* lastRmNumber TIDAK ada di UPDATE SET agar counter RM tidak pernah tereset oleh simpan pengaturan */`
     ).bind(
       clinicId,
       body.clinicName || '',
@@ -139,18 +141,27 @@ settings.post('/settings/increment-sick-leave', async (c) => {
 // Download Database Backup for Clinic
 settings.get('/settings/backup', async (c) => {
   const clinicId = getClinicId(c)
+  const payload: any = c.get('jwtPayload')
   
-  const patients = await c.env.DB.prepare('SELECT * FROM patients WHERE clinicId = ?').bind(clinicId).all()
-  const examinations = await c.env.DB.prepare('SELECT * FROM examinations WHERE clinicId = ?').bind(clinicId).all()
-  const medicines = await c.env.DB.prepare('SELECT * FROM medicines WHERE clinicId = ?').bind(clinicId).all()
+  // Hanya OWNER yang boleh mengunduh backup lengkap
+  if (payload.role && payload.role !== 'OWNER' && payload.role !== 'SUPER_ADMIN' && !payload.isAdmin) {
+    return c.json({ error: 'Hanya pemilik klinik yang dapat mengunduh backup data.' }, 403)
+  }
+
+  // EFISIENSI D1: 3 query dalam 1 batch (1 roundtrip, bukan 3 serial)
+  const [patientsRes, examinationsRes, medicinesRes] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT * FROM patients WHERE clinicId = ?').bind(clinicId),
+    c.env.DB.prepare('SELECT * FROM examinations WHERE clinicId = ?').bind(clinicId),
+    c.env.DB.prepare('SELECT * FROM medicines WHERE clinicId = ?').bind(clinicId)
+  ])
   
   return c.json({
     timestamp: new Date().toISOString(),
     clinicId,
     data: {
-      patients: patients.results,
-      examinations: examinations.results,
-      medicines: medicines.results
+      patients: patientsRes.results,
+      examinations: examinationsRes.results,
+      medicines: medicinesRes.results
     }
   })
 })

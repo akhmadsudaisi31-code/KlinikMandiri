@@ -146,12 +146,12 @@ auth.post('/login', async (c) => {
   
   let userType = 'OWNER';
   let user: any = await c.env.DB.prepare(
-    'SELECT * FROM clinics WHERE email = ?'
+    'SELECT id, name, email, password, status, isAdmin, clinicType, validUntil, tier FROM clinics WHERE email = ?'
   ).bind(body.email).first();
 
   if (!user) {
       user = await c.env.DB.prepare(
-          'SELECT * FROM clinic_users WHERE email = ?'
+          'SELECT id, name, email, password, role, clinicId FROM clinic_users WHERE email = ?'
       ).bind(body.email).first();
       if (user) {
           userType = user.role;
@@ -303,20 +303,26 @@ auth.post('/reset-password', async (c) => {
         const user: any = await c.env.DB.prepare('SELECT id, name FROM clinics WHERE email = ?').bind(email).first()
         
         if (user) {
-            // 2. Generate reset token (simulasi)
+            // 2. Generate reset token
             const resetToken = crypto.randomUUID()
-            const resetLink = `http://localhost:5173/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
+            
+            // 3. Simpan token ke DB dengan expiry 1 jam
+            // TODO: Buat tabel password_reset_tokens (token TEXT PK, email TEXT, expiresAt DATETIME)
+            // Saat ini token hanya di-log untuk keperluan debugging lokal
+            
+            // 4. Buat link dinamis berdasarkan origin request (bukan hardcoded localhost)
+            const origin = c.req.header('Origin') || 'https://klinikmandiri.pages.dev'
+            const resetLink = `${origin}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
             
             console.log(`[AUTH] Reset Password requested for ${email} (${user.name})`)
-            console.log(`[AUTH] SIMULATED RESET LINK: ${resetLink}`)
+            console.log(`[AUTH] RESET LINK: ${resetLink}`)
             
-            // 3. TODO: Kirim email beneran via Resend jika API Key valid
-            // if (c.env.RESEND_API_KEY && !c.env.RESEND_API_KEY.startsWith('re_')) { ... }
+            // 5. TODO: Kirim email via Resend ketika token sudah disimpan di DB
+            // if (c.env.RESEND_API_KEY) { await sendResetEmail(c.env, email, resetLink) }
         }
 
-        // Selalu return sukses (Security best practice: jangan kasih tau apakah email ada atau tidak)
-        // Namun di screenshot, user ingin pesan "Email reset password telah dikirim ke..."
-        return c.json({ success: true, message: `Email reset password telah dikirim ke ${email}.` })
+        // Selalu return sukses (Security best practice: jangan kasih tau apakah email terdaftar atau tidak)
+        return c.json({ success: true, message: 'Jika email Anda terdaftar, link reset password akan dikirim.' })
     } catch (e: any) {
         console.error("Forgot Password Error:", e)
         return c.json({ error: 'Terjadi kesalahan. Silakan coba lagi nanti.' }, 500)

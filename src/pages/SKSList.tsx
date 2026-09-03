@@ -31,8 +31,22 @@ const SKSList: React.FC = () => {
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
     useEffect(() => {
-        fetchRecords();
-        fetchSettings();
+        // EFISIENSI: 2 request paralel dalam 1 batch
+        const loadAll = async () => {
+            try {
+                const [sksData, settingsData] = await Promise.all([
+                    api.get('/sks'),
+                    api.get('/settings').catch(() => null)
+                ]);
+                setRecords(Array.isArray(sksData) ? sksData : []);
+                if (settingsData) setSettings(settingsData);
+            } catch (e) {
+                toast.error("Gagal memuat riwayat SKS");
+            } finally {
+                setLoading(false);
+            }
+        };
+        loadAll();
     }, []);
 
     const fetchRecords = async () => {

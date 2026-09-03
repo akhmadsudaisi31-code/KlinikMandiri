@@ -356,66 +356,32 @@ function ExaminationForm() {
 
 
   useEffect(() => {
-    const fallbackItems = (
-      isDentalClinic
-        ? [
-            ...DENTAL_ICD10_ITEMS.map((item) => ({
-              ...item,
-              source: "who_icd10_2019",
-              sourceLabel: "WHO",
-            })),
-            ...GENERAL_ICD10_ITEMS.map((item) => ({
-              ...item,
-              source: "who_icd10_2019",
-              sourceLabel: "WHO",
-            })),
-          ]
-        : GENERAL_ICD10_ITEMS.map((item) => ({
-            ...item,
-            source: "who_icd10_2019",
-            sourceLabel: "WHO",
-          }))
-    ).slice(0, 20);
+    // 0-D1 ROW READ ARCHITECTURE:
+    // Gunakan kamus lokal lengkap (GENERAL_ICD10_ITEMS + DENTAL_ICD10_ITEMS) di memori JavaScript browser.
+    // Pencarian instan (0ms delay), mendukung sinonim bahasa Indonesia, dan 100% TIDAK menyentuh D1 database.
+    const allSourceItems: Icd10Item[] = isDentalClinic
+      ? [
+          ...DENTAL_ICD10_ITEMS.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "Dental" })),
+          ...GENERAL_ICD10_ITEMS.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "Umum" })),
+        ]
+      : GENERAL_ICD10_ITEMS.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "WHO" }));
 
-    const mergeIcdItems = (items: Icd10Item[]) => {
-      const seen = new Set<string>();
-      return items.filter((item) => {
-        const key = `${item.source || "unknown"}:${item.code}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    };
+    const rawQuery = (watchIcd10 || "").trim().toLowerCase();
 
-    const timer = window.setTimeout(async () => {
-      try {
-        const query = encodeURIComponent(watchIcd10 || "");
-        const [whoResult, cmResult] = await Promise.all([
-          api.get(`/icd/search?source=who_icd10_2019&q=${query}&limit=12`),
-          api.get(`/icd/search?source=icd10cm_2026&q=${query}&limit=12`),
-        ]);
+    if (!rawQuery) {
+      setIcd10Items(allSourceItems.slice(0, 25));
+      return;
+    }
 
-        const normalizedResults = mergeIcdItems([
-          ...((Array.isArray(whoResult) ? whoResult : []).map((item: any) => ({
-            ...item,
-            source: "who_icd10_2019",
-            sourceLabel: "WHO",
-          })) as Icd10Item[]),
-          ...((Array.isArray(cmResult) ? cmResult : []).map((item: any) => ({
-            ...item,
-            source: "icd10cm_2026",
-            sourceLabel: "ICD-10-CM",
-          })) as Icd10Item[]),
-        ]);
+    // Smart in-memory search: match code prefix, title words, or Indonesian keywords
+    const matched = allSourceItems.filter((item) => {
+      const codeMatch = item.code.toLowerCase().includes(rawQuery);
+      const titleMatch = item.title.toLowerCase().includes(rawQuery);
+      const keywordMatch = (item.keywords || []).some((kw) => kw.toLowerCase().includes(rawQuery));
+      return codeMatch || titleMatch || keywordMatch;
+    });
 
-        setIcd10Items(normalizedResults.length > 0 ? normalizedResults : fallbackItems);
-      } catch (error) {
-        console.error("Gagal mengambil referensi ICD:", error);
-        setIcd10Items(fallbackItems);
-      }
-    }, 500);
-
-    return () => window.clearTimeout(timer);
+    setIcd10Items(matched.slice(0, 30));
   }, [isDentalClinic, watchIcd10]);
 
   // HTP Calculation for Bumil

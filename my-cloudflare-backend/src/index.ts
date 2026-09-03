@@ -27,26 +27,25 @@ const getSecret = (env: Bindings) => {
   return env.JWT_SECRET;
 }
 
-// 1. Better CORS (Restrict in Production)
+// 1. CORS — hanya izinkan origin yang sudah disetujui
 app.use('*', async (c, next) => {
-  const isProd = c.env.JWT_SECRET; // Simple heuristic for production vs local
   const origin = c.req.header('Origin');
   const allowedOrigins = [
       'https://satset-rm.pages.dev', 
       'https://klinikmandiri.pages.dev',
-      'http://localhost:5173'
+      'http://localhost:5173',
+      'http://localhost:4173'
   ];
 
   const corsMiddleware = cors({
     origin: (origin) => {
-        if (!isProd) return origin;
         if (!origin) return allowedOrigins[0];
-        
-        // Allow production domains
         if (allowedOrigins.includes(origin)) return origin;
         
-        // Allow local network origins (for phone/tablet testing)
-        if (origin.startsWith('http://192.168.') || origin.startsWith('http://10.')) {
+        // Izinkan IP lokal HANYA untuk localhost/dev (bukan production Cloudflare Workers)
+        // Di production Cloudflare Workers, JWT_SECRET selalu tersedia → ini sebagai guard
+        const isLocalDev = !c.env.JWT_SECRET;
+        if (isLocalDev && (origin.startsWith('http://192.168.') || origin.startsWith('http://10.'))) {
             return origin;
         }
         
@@ -75,10 +74,11 @@ app.onError((err: any, c) => {
   }
 
   const status = err.status || 500;
+  // Jangan pernah ekspos stack trace — gunakan env ENVIRONMENT terpisah untuk dev mode
+  const isDev = !c.env.JWT_SECRET; // JWT_SECRET selalu ada di production Cloudflare Workers
   return c.json({ 
-      error: err.message || 'Terjadi kesalahan pada server.',
-      message: err.message,
-      stack: c.env.JWT_SECRET ? undefined : err.stack,
+      error: 'Terjadi kesalahan pada server.',
+      ...(isDev && { detail: err.message, stack: err.stack }),
       status
   }, status);
 });
@@ -92,8 +92,7 @@ app.get('/', (c) => c.text('KlinikMandiri API is running'))
 app.use('/api/*', async (c, next) => {
   const path = c.req.path
   if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/reset-password')
-    || (path.includes('/errors') && c.req.method === 'POST')
-    || (path.includes('/upload/lab-result/') && c.req.method === 'GET')) { 
+    || (path.includes('/errors') && c.req.method === 'POST')) { 
     return next()
   }
   
@@ -129,8 +128,7 @@ app.use('/api/*', async (c, next) => {
 // 2. Clinic Status & Admin Check
 app.use('/api/*', async (c, next) => {
   const path = c.req.path
-  if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/me') || path.includes('/auth/renew') || path.includes('/auth/reset-password') || path.includes('/auth/refresh-token')
-    || (path.includes('/upload/lab-result/') && c.req.method === 'GET')) {
+  if (path.includes('/auth/login') || path.includes('/auth/register') || path.includes('/auth/me') || path.includes('/auth/renew') || path.includes('/auth/reset-password') || path.includes('/auth/refresh-token')) {
     return next()
   }
 
