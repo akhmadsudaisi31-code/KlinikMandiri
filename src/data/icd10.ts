@@ -455,3 +455,36 @@ export const GENERAL_ICD10_ITEMS: Icd10Item[] = [
   { code: "Z54.0", title: "Convalescence following surgery", keywords: ["pemulihan pasca operasi konvalesen bedah"] },
   { code: "Z76.2", title: "Health supervision and care of other healthy infant and child", keywords: ["pengawasan bayi sehat kontrol bayi"] },
 ];
+
+let cachedFullItems: Icd10Item[] | null = null;
+
+export async function loadFullWhoIcd10(): Promise<Icd10Item[]> {
+  if (cachedFullItems) return cachedFullItems;
+  try {
+    const rawModule = await import("./icd10_compact.json");
+    const rawData: [string, string, string][] = (rawModule.default || rawModule) as [string, string, string][];
+    
+    // Index existing primary items to avoid duplication
+    const existingCodes = new Set(GENERAL_ICD10_ITEMS.map(item => item.code));
+    
+    const extraItems: Icd10Item[] = [];
+    for (let i = 0; i < rawData.length; i++) {
+      const [code, en, id] = rawData[i];
+      if (!existingCodes.has(code)) {
+        extraItems.push({
+          code,
+          title: en,
+          keywords: id ? [id.toLowerCase()] : [],
+          source: "who_icd10_2019",
+          sourceLabel: "WHO"
+        });
+      }
+    }
+    
+    cachedFullItems = [...GENERAL_ICD10_ITEMS, ...extraItems];
+    return cachedFullItems;
+  } catch (err) {
+    console.warn("Gagal memuat dataset penuh ICD-10 WHO, menggunakan kamus standar.", err);
+    return GENERAL_ICD10_ITEMS;
+  }
+}

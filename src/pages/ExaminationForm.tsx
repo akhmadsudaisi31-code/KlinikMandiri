@@ -10,7 +10,7 @@ import { format, addDays, subMonths, addYears } from "date-fns";
 import toast from "react-hot-toast";
 import { MedicineSelectorModal } from "../components/MedicineSelectorModal";
 import { ExaminationDetailModal } from "../components/ExaminationDetailModal";
-import { GENERAL_ICD10_ITEMS, Icd10Item } from "../data/icd10";
+import { GENERAL_ICD10_ITEMS, Icd10Item, loadFullWhoIcd10 } from "../data/icd10";
 import { DENTAL_ICD10_ITEMS } from "../data/dentalIcd10";
 import { createDefaultOdontogram, normalizeOdontogram, OdontogramTooth } from "../utils/dental";
 import { getExamPageTitle, isDentalClinicType } from "../utils/clinic";
@@ -195,7 +195,17 @@ function ExaminationForm() {
   const [biayaDisplay, setBiayaDisplay] = useState("");
   const [odontogram, setOdontogram] = useState<OdontogramTooth[]>(createDefaultOdontogram());
   const [icd10Items, setIcd10Items] = useState<Icd10Item[]>([]);
+  const [fullWhoItems, setFullWhoItems] = useState<Icd10Item[] | null>(null);
   const isDentalClinic = isDentalClinicType(user?.clinicType);
+
+  // Lazy load 10.470+ dataset WHO lengkap di latar belakang browser (0 D1 read, 0 impact UI)
+  useEffect(() => {
+    let active = true;
+    loadFullWhoIcd10().then((items) => {
+      if (active) setFullWhoItems(items);
+    }).catch((err) => console.warn("Background load ICD-10 error", err));
+    return () => { active = false; };
+  }, []);
   const examPageTitle = getExamPageTitle(user?.clinicType);
   const { isFeatureEnabled } = useFeatures();
 
@@ -354,15 +364,16 @@ function ExaminationForm() {
 
 
   useEffect(() => {
-    // 0-D1 ROW READ ARCHITECTURE:
-    // Gunakan kamus lokal lengkap (GENERAL_ICD10_ITEMS + DENTAL_ICD10_ITEMS) di memori JavaScript browser.
-    // Pencarian instan (0ms delay), mendukung sinonim bahasa Indonesia, dan 100% TIDAK menyentuh D1 database.
+    // 0-D1 ROW READ ARCHITECTURE (WHO COMPLETE DATASET ~10.470+ KODE):
+    // Menggunakan dataset penuh WHO yang dimuat secara non-blocking di memori browser.
+    // Pencarian instan (0ms delay), mendukung sinonim bahasa Indonesia & Inggris, 100% TIDAK menyentuh D1 database.
+    const baseItems = fullWhoItems || GENERAL_ICD10_ITEMS;
     const allSourceItems: Icd10Item[] = isDentalClinic
       ? [
           ...DENTAL_ICD10_ITEMS.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "Dental" })),
-          ...GENERAL_ICD10_ITEMS.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "Umum" })),
+          ...baseItems.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "Umum" })),
         ]
-      : GENERAL_ICD10_ITEMS.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "WHO" }));
+      : baseItems.map((item) => ({ ...item, source: "who_icd10_2019", sourceLabel: "WHO" }));
 
     const rawQuery = (watchIcd10 || "").trim().toLowerCase();
 
@@ -380,7 +391,7 @@ function ExaminationForm() {
     });
 
     setIcd10Items(matched.slice(0, 30));
-  }, [isDentalClinic, watchIcd10]);
+  }, [isDentalClinic, watchIcd10, fullWhoItems]);
 
   // HTP Calculation for Bumil
   useEffect(() => {
