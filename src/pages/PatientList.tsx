@@ -72,7 +72,7 @@ function PatientList() {
 
   // Sync real-time antar tab/device via dataSync
   useEffect(() => {
-    const unsubscribe = subscribeDataSync(['patients'], fetchPatients);
+    const unsubscribe = subscribeDataSync(['patients'], () => fetchPatients());
     return unsubscribe;
   }, [fetchPatients]);
 

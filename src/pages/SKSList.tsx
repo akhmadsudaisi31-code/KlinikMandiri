@@ -60,12 +60,6 @@ const SKSList: React.FC = () => {
         }
     };
 
-    const fetchSettings = async () => {
-        try {
-            const data = await api.get('/settings');
-            setSettings(data);
-        } catch (e) {}
-    };
 
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();

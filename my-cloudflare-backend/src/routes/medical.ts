@@ -381,7 +381,10 @@ medical.get('/examinations', async (c) => {
     SELECT examinations.id, examinations.clinicId, examinations.patientId, examinations.patientName,
            examinations.patientRm, examinations.diagnosa, examinations.icd10, examinations.biaya,
            examinations.tindakan, examinations.edukasi, examinations.rencanaTindakLanjut,
-           examinations.keluhanUtama, examinations.medicines_json, examinations.extendedData_json,
+           examinations.keluhanUtama, examinations.riwayatPenyakitSekarang, examinations.pemeriksaanFisik,
+           examinations.tensi, examinations.nadi, examinations.suhu, examinations.respirasi,
+           examinations.bb, examinations.tb, examinations.spo2,
+           examinations.medicines_json, examinations.extendedData_json,
            examinations.createdAt, examinations.date, examinations.updatedAt,
            patients.namaSuami, patients.ageDisplay, patients.address, patients.occupation 
     FROM examinations 

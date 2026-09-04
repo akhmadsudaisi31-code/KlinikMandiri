@@ -451,7 +451,7 @@ function ExaminationList() {
                                                                                 toast.success("Rekam medis berhasil dihapus");
                                                                                 fetchExaminations();
                                                                             })
-                                                                            .catch(e => toast.error("Gagal menghapus rekam medis"));
+                                                                            .catch(_e => toast.error("Gagal menghapus rekam medis"));
                                                                     }
                                                                 }}
                                                                 className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"

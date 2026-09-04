@@ -46,7 +46,7 @@ function MedicineList() {
 
     // Sync dari aksi lokal (tetap pertahankan)
     useEffect(() => {
-        const unsubscribe = subscribeDataSync(['medicines'], fetchMedicines);
+        const unsubscribe = subscribeDataSync(['medicines'], () => fetchMedicines());
         return unsubscribe;
     }, [fetchMedicines]);
 

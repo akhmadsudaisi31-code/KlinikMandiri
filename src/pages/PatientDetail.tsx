@@ -6,7 +6,7 @@ import { Patient, Visit, Examination } from '../types';
 import { useForm, Controller } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { formatRupiah, parseRupiah } from '../utils/format';
-import { format } from 'date-fns';
+
 import { ExaminationDetailModal } from '../components/ExaminationDetailModal';
 import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';

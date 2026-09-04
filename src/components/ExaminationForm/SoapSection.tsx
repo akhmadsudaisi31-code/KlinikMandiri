@@ -3,6 +3,7 @@ import { UseFormRegister, FieldErrors, UseFormSetValue, UseFormWatch } from "rea
 import { Icd10Autocomplete } from "../Icd10Autocomplete";
 import { Icd10Item } from "../../data/icd10";
 import { OdontogramEditor } from "../OdontogramEditor";
+import { LabSection } from "./LabSection";
 
 interface SoapSectionProps {
   register: UseFormRegister<any>;
@@ -14,6 +15,8 @@ interface SoapSectionProps {
   isDentalClinic?: boolean;
   odontogram?: any;
   setOdontogram?: (val: any) => void;
+  canUpload?: boolean;
+  history?: any[];
 }
 
 export const SoapSection: React.FC<SoapSectionProps> = ({
@@ -26,6 +29,8 @@ export const SoapSection: React.FC<SoapSectionProps> = ({
   isDentalClinic,
   odontogram,
   setOdontogram,
+  canUpload,
+  history,
 }) => {
   const handleSelectIcd10 = (item: { code: string; title: string }) => {
     setValue("icd10", item.code, { shouldDirty: true, shouldValidate: true });
@@ -366,6 +371,16 @@ export const SoapSection: React.FC<SoapSectionProps> = ({
           </div>
         )}
       </div>
+
+      {/* LAB SECTION — tepat di bawah Objective, sebelum Assessment */}
+      <LabSection
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        showEyeExam={watch("showEyeExam")}
+        canUpload={canUpload}
+        history={history}
+      />
 
       {/* A: ASSESSMENT */}
       <div className="bg-white dark:bg-dark-surface p-6 rounded-2xl shadow-soft border-2 border-gray-900 dark:border-dark-border">

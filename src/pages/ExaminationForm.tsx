@@ -17,7 +17,6 @@ import { getExamPageTitle, isDentalClinicType } from "../utils/clinic";
 import { SoapSection } from "../components/ExaminationForm/SoapSection";
 import { SpecialtySection } from "../components/ExaminationForm/SpecialtySection";
 import { MedicineSection } from "../components/ExaminationForm/MedicineSection";
-import { LabSection } from "../components/ExaminationForm/LabSection";
 import { broadcastPatientQueueUpdate } from "../utils/patientQueueSync";
 import { useFeatures } from "../hooks/useFeatures";
 
@@ -250,7 +249,6 @@ function ExaminationForm() {
       skor: "",
       kunjunganAnc: "",
       usg: "",
-      labResultImage: "",
 
       // Persalinan Data
       jenisPersalinan: "",
@@ -616,10 +614,6 @@ function ExaminationForm() {
     setValue("dentalGingiva", ext.dentalGingiva || "");
     setValue("dentalPlaqueIndex", ext.dentalPlaqueIndex || "");
     setValue("dentalCalculus", ext.dentalCalculus || "");
-    setValue("dentalPalpation", ext.dentalPalpation || "");
-    setValue("dentalPercussion", ext.dentalPercussion || "");
-    setValue("dentalMobility", ext.dentalMobility || "");
-    setValue("dentalPocketDepth", ext.dentalPocketDepth || "");
     setValue("dentalBleedingOnProbing", ext.dentalBleedingOnProbing || "");
 
     // Lab Data
@@ -762,10 +756,6 @@ function ExaminationForm() {
           dentalGingiva: data.dentalGingiva,
           dentalPlaqueIndex: data.dentalPlaqueIndex,
           dentalCalculus: data.dentalCalculus,
-          dentalPalpation: data.dentalPalpation,
-          dentalPercussion: data.dentalPercussion,
-          dentalMobility: data.dentalMobility,
-          dentalPocketDepth: data.dentalPocketDepth,
           dentalBleedingOnProbing: data.dentalBleedingOnProbing,
           odontogram,
 
@@ -1092,13 +1082,6 @@ function ExaminationForm() {
           isDentalClinic={isDentalClinic}
           odontogram={odontogram}
           setOdontogram={setOdontogram}
-        />
-
-        <LabSection 
-          register={register} 
-          setValue={setValue}
-          watch={watch}
-          showEyeExam={watch("showEyeExam")}
           canUpload={user?.features?.lab_upload}
           history={patientHistory}
         />
