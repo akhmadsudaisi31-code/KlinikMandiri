@@ -46,16 +46,30 @@ function PatientDetail() {
 
     const fetchData = async () => {
       try {
-        // EFISIENSI: 3 request paralel (bukan serial) — hemat ~200ms latensi per buka halaman
-        const [p, v, e] = await Promise.all([
+        // ROBUSTNESS: Promise.allSettled agar 1 request gagal tidak memblokir seluruh halaman
+        // (sebelumnya Promise.all — jika /visits gagal, patient & examinations juga tidak tampil)
+        const [pResult, vResult, eResult] = await Promise.allSettled([
           api.get(`/patients/${id}`),
           api.get(`/visits?patientId=${id}`),
           api.get(`/examinations?patientId=${id}`)
         ]);
-        if (isMounted) {
-          setPatient(p);
-          setVisits(v || []);
-          setExaminations(e || []);
+
+        if (!isMounted) return;
+
+        if (pResult.status === 'fulfilled' && pResult.value) {
+          setPatient(pResult.value);
+        } else if (pResult.status === 'rejected') {
+          toast.error("Gagal memuat data pasien");
+        }
+
+        if (vResult.status === 'fulfilled') {
+          setVisits(vResult.value || []);
+        }
+
+        if (eResult.status === 'fulfilled') {
+          setExaminations(eResult.value || []);
+        } else if (eResult.status === 'rejected') {
+          console.error("Gagal memuat riwayat pemeriksaan:", eResult.reason);
         }
       } catch (e: any) {
         console.error(e);

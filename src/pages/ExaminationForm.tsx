@@ -858,6 +858,8 @@ function ExaminationForm() {
           `${isDentalClinic ? "Pelayanan gigi" : "Pemeriksaan"} berhasil disimpan.`,
           { id: 'exam-success' }
         );
+        // Delay kecil agar D1 commit selesai sebelum PatientDetail mount dan fetch riwayat
+        await new Promise(resolve => setTimeout(resolve, 300));
         navigate(`/pasien/${patient.id}`);
       }
     } catch (error) {

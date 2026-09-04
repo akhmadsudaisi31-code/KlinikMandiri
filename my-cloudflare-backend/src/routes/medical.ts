@@ -579,7 +579,8 @@ medical.delete('/visits/:id', async (c) => {
 medical.get('/notifications', async (c) => {
   const clinicId = getClinicId(c)
   const toRole = c.req.query('toRole')
-  let query = 'SELECT * FROM notifications WHERE clinicId = ? AND isRead = 0'
+  // EFISIENSI D1: kolom eksplisit, tidak lagi SELECT *
+  let query = 'SELECT id, type, patientId, patientName, message, isRead, createdAt, toRole FROM notifications WHERE clinicId = ? AND isRead = 0'
   const params: any[] = [clinicId]
 
   if (toRole) {
