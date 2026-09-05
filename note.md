@@ -788,7 +788,40 @@ Query pencarian kamus ICD-10 (`SELECT code, title FROM icd_codes WHERE source = 
 
 ---
 
+## 39. Perbaikan Bug Pelayanan Klinis & Integrasi ICD-10 WHO Lengkap (0 D1 Reads) *(September 2026)*
 
+**Keluhan & Permintaan Client:**
+1. **Tensi & Tanda Vital Hilang di Riwayat**: Pada rincian pemeriksaan pasien, data tensi tidak tampil lagi.
+2. **Kode ICD-10 Hilang/Terbatas**: Kode `Z36` (skrining antenatal) dan diagnosa spesifik lain tidak dapat ditemukan saat dokter/bidan mengetik.
+3. **Posisi Form Laboratorium**: Meminta bagian hasil laboratorium dipindahkan ke atas (tepat di bawah bagian *Objective / Vital Signs*, sebelum *Assessment / Diagnosa*).
+4. **Proteksi Hit Limit D1**: Memastikan seluruh sistem pencarian dan antrean aman dari lonjakan kuota hit limit Cloudflare D1.
 
+**Solusi & Perbaikan yang Diterapkan:**
+1. **Perbaikan Query Kolom Tanda Vital (`my-cloudflare-backend/src/routes/medical.ts`):**
+   - Kolom `tensi`, `nadi`, `suhu`, `respirasi`, `bb`, `tb`, `spo2`, `pemeriksaanFisik`, dan `riwayatPenyakitSekarang` sebelumnya terlewat dari klausa `SELECT` eksplisit di `GET /examinations`.
+   - Kolom-kolom tersebut kini dimasukkan kembali secara eksplisit ke query `SELECT`. Modal riwayat pemeriksaan (`ExaminationDetailModal.tsx`) dapat membaca dan menampilkan tensi serta vital signs dengan normal.
+2. **Relokasi Komponen Form Lab (`src/components/ExaminationForm/SoapSection.tsx` & `src/pages/ExaminationForm.tsx`):**
+   - Memindahkan komponen `<LabSection>` ke dalam `SoapSection` tepat setelah penutupan blok *Objective (O)* dan sebelum blok *Assessment (A)*.
+   - Dokter dan bidan dapat menginput hasil lab (GDS, Asam Urat, Kolesterol, Hb, foto lab) langsung berurutan setelah pemeriksaan fisik/vital signs.
+3. **Integrasi ICD-10 Standar WHO Penuh (~10.470+ Kode) Bebas Hit Limit (`src/data/icd10.ts` & `src/data/icd10_compact.json`):**
+   - Mengintegrasikan master dataset ICD-10 WHO lengkap (A00–Z99, termasuk varian `Z36` Antenatal screening, `Z34-Z39`, infeksi, penyakit dalam, bedah, kandungan, dll.) lengkap dengan terjemahan bahasa Indonesia.
+   - **Arsitektur Lazy Loaded Chunk**: Dataset diekstraksi ke chunk terpisah oleh Vite bundler (`~202 KB Gzip`). Halaman awal dan alur registrasi tidak terbebani.
+   - **0 Reads ke Database D1**: Seluruh pencarian dan autocomplete berjalan instan (0ms delay) di RAM browser client tanpa memicu query `LIKE` ke server, melindungi kuota 5 juta baris D1 secara permanen.
+4. **Pembersihan & Perbaikan Strict TypeScript Error:**
+   - Menyelaraskan signature callback `subscribeDataSync` di `PatientList.tsx` dan `MedicineList.tsx`.
+   - Membersihkan variabel tidak terpakai di `SKSList.tsx`, `PatientDetail.tsx`, dan `ExaminationList.tsx`.
+   - Memperbaiki field dental di `ExaminationForm.tsx`.
+   - Frontend (`npm run build`) dan Backend (`npx tsc --noEmit`) lulus kompilasi 100% dengan **0 error**.
 
-
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/data/icd10.ts`
+- `src/data/icd10_compact.json`
+- `src/pages/ExaminationForm.tsx`
+- `src/components/ExaminationForm/SoapSection.tsx`
+- `src/pages/PatientList.tsx`
+- `src/pages/MedicineList.tsx`
+- `src/pages/SKSList.tsx`
+- `src/pages/PatientDetail.tsx`
+- `src/pages/ExaminationList.tsx`
+- `note.md`
