@@ -1038,3 +1038,15 @@ Aplikasi tiba-tiba menampilkan layar "Layanan Sedang Mengalami Gangguan" (`/main
 3. **Deployment**:
    - Backend Cloudflare Worker dideploy (`Current Version ID: 2e2bcd48-f118-4eef-a961-56cd828e02c8`).
    - Frontend Cloudflare Pages di-push ke branch `main` (`commit c5c4407`).
+
+---
+
+## 41. Penyempurnaan Toleransi 429 & Auto-Clear Flag Maintenance (8 September 2026)
+
+**Tindakan yang Diterapkan:**
+1. **Pembersihan Otomatis Storage (`src/main.tsx`)**: Menambahkan pembersihan otomatis `sessionStorage.removeItem('d1_limit_active')` di entry point aplikasi jika user membuka rute selain `/maintenance`. Ini mencegah tablet/klien terjebak di mode pemeliharaan akibat status lawas.
+2. **Pengetatan Kriteria 429 Backend (`my-cloudflare-backend/src/index.ts`)**: Memperketat handler `app.onError` agar hanya mengembalikan status `429 (isD1Limit: true)` jika pesan error benar-benar mengandung teks resmi `exceeded D1's free tier daily row read limit` (menghapus pencocokan longgar `daily row read limit` yang rentan salah tangkap).
+3. **Penghapusan Auto-Redirect Agresif (`src/api.ts`)**: Frontend hanya akan melakukan redirect ke `/maintenance` jika HTTP status benar-benar `429` DAN respons JSON memiliki atribut eksplisit `isD1Limit === true`.
+4. **Deployment**:
+   - Backend Cloudflare Worker (`Current Version ID: 38e6e68c-e94e-4f60-9824-cd7a379bb292`).
+   - Frontend Cloudflare Pages (`commit 01e31e4`).
