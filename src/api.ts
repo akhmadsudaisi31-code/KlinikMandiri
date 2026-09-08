@@ -68,9 +68,18 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
           errorMsg = response.statusText;
         }
 
-        // Handle D1 Rate Limit (429) via toast instead of locking user to maintenance page
+        // REDIRECT KE HALAMAN MAINTENANCE JIKA D1 LIMIT TERCAPAI
+        // Hanya redirect jika kode status 429 dan errorBody menyatakan isD1Limit
+        if (isProd && response.status === 429 && errorBody.isD1Limit === true) {
+          if (window.location.pathname !== '/maintenance') {
+            sessionStorage.setItem('d1_limit_active', 'true');
+            window.location.href = '/maintenance';
+          }
+          throw new Error(errorMsg);
+        }
+
+        // Handle generic 429 Rate Limit
         if (response.status === 429) {
-          sessionStorage.removeItem('d1_limit_active');
           toast.error('Layanan sedang sibuk. Silakan coba beberapa saat lagi.', { id: 'd1-busy-error' });
           throw new Error(errorMsg);
         }

@@ -69,7 +69,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <App>
             <Routes>
-            <Route path="/maintenance" element={<Navigate to="/" replace />} />
+            <Route path="/maintenance" element={<MaintenanceError />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/lupa-password" element={<ForgotPassword />} />
