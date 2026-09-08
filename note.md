@@ -808,6 +808,201 @@ Query pencarian kamus ICD-10 (`SELECT code, title FROM icd_codes WHERE source = 
    - **Arsitektur Lazy Loaded Chunk**: Dataset diekstraksi ke chunk terpisah oleh Vite bundler (`~202 KB Gzip`). Halaman awal dan alur registrasi tidak terbebani.
    - **0 Reads ke Database D1**: Seluruh pencarian dan autocomplete berjalan instan (0ms delay) di RAM browser client tanpa memicu query `LIKE` ke server, melindungi kuota 5 juta baris D1 secara permanen.
 4. **Pembersihan & Perbaikan Strict TypeScript Error:**
+## 33. Perbaikan Bug: Logout Mendadak / Sering Terlogout *(September 2026)*
+
+**Masalah:** Client melaporkan akun sering terlogout paksa, terutama di tengah sesi kerja.
+
+**Akar Masalah:**
+1. **JWT TTL hanya 24 jam** — klinik yang login pagi akan terlogout paksa keesokan harinya di jam yang sama, termasuk di tengah shift kerja.
+2. **Tidak ada mekanisme refresh token** — setelah token expire, satu-satunya cara adalah login ulang manual.
+3. **`api.ts` logout agresif saat 401** — semua response 401 (termasuk dari D1 timeout atau kondisi tidak terduga) memicu hapus token + redirect login, meskipun token user sebenarnya masih valid.
+4. **`refreshUser` dipanggil tanpa cek expiry** — setiap kali app dibuka, langsung hit `/auth/me`. Jika jaringan sesaat bermasalah dan backend reply 401 karena apapun, user dilogout.
+
+**Perbaikan:**
+
+1. **JWT TTL 24 jam → 7 hari** di `auth.ts` (endpoint `/login` dan `/register`).
+2. **Endpoint baru `POST /auth/refresh-token`** — terima token lama yang masih valid, terbitkan token baru 7 hari tanpa perlu password. Whitelist di status middleware `index.ts`.
+3. **`AuthContext.tsx` — rewrite session management:**
+   - Fungsi `getTokenExpiry()`: decode JWT payload di client untuk cek expiry tanpa hit backend.
+   - Saat app dibuka: cek expiry token dulu — jika sudah expire, logout bersih dengan pesan jelas sebelum hit backend.
+   - `scheduleTokenRefresh()`: jadwalkan silent refresh 1 jam sebelum token expire. Dijalankan otomatis setelah login, setelah `refreshUser`, dan saat app dibuka.
+   - `silentRefreshToken()`: hit `POST /auth/refresh-token` diam-diam. Jika gagal (network error, D1 error), **tidak logout** — token lama tetap dipakai.
+   - `refreshUser()`: tangkap error non-401 dengan diam (warn ke console), **tidak logout** saat terjadi error transient. Hanya 401 asli (dari `api.ts` middleware) yang memicu logout.
+
+**Alur baru:**
+```
+Login → Token 7 hari
+  ↓ [6 hari kemudian]
+scheduleTokenRefresh() trigger
+  ↓
+POST /auth/refresh-token → Token baru 7 hari
+  ↓
+User tidak pernah dilogout paksa selama masih aktif
+```
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/auth.ts`
+- `my-cloudflare-backend/src/index.ts`
+- `src/context/AuthContext.tsx`
+
+---
+
+## 34. Perbaikan Bug: Riwayat Kunjungan Pasien & Seluruh Menu Laporan *(September 2026)*
+
+**Masalah:** 
+1. Riwayat kunjungan pada profil pasien lama tidak muncul (kosong/crash).
+2. Menu Laporan (Harian, Bulanan, Tahunan) untuk semua data pemeriksaan tidak menampilkan data.
+
+**Akar Masalah:**
+1. Pada `PatientDetail.tsx`, data rekam medis lama memiliki kolom `date` yang bernilai `NULL` (hanya ada `createdAt`). Saat pemformatan tanggal `format(new Date(item.date), ...)`, `date-fns` melempar runtime error `RangeError: Invalid time value` sehingga timeline riwayat gagal dirender.
+2. Pada `my-cloudflare-backend/src/routes/medical.ts`, optimasi sebelumnya tidak menyertakan kolom `extendedData_json` pada `GET /examinations`. Ini menyebabkan filter laporan ANC dan Persalinan membuang semua record (karena filter wajib `extendedData_json`), serta mapping data laporan pemeriksaan umum tidak terbaca dengan lengkap.
+3. Tabel empty state di `Reports.tsx` memiliki `colSpan={5}` yang tidak sesuai dengan jumlah header kolom (7 kolom), menyebabkan layout bergeser saat data kosong.
+
+**Perbaikan:**
+1. **`my-cloudflare-backend/src/routes/medical.ts`**:
+   - Menambahkan kembali `examinations.extendedData_json` ke dalam query `SELECT` pada endpoint `GET /examinations`.
+   - Menggunakan `COALESCE(examinations.date, examinations.createdAt) as date` agar field `date` selalu terisi valid untuk data lama.
+2. **`src/pages/PatientDetail.tsx`**:
+   - Mengubah logika sorting dan rendering timeline riwayat agar menggunakan fallback `rawDate = item.date || item.createdAt`.
+   - Menggunakan fungsi `formatWibSafe(rawDate, ...)` sehingga aman dari nilai null/undefined.
+3. **`src/pages/Reports.tsx`**:
+   - Menyesuaikan `colSpan` empty state secara dinamis sesuai jenis laporan (`ANC: 19`, `Persalinan: 20`, `Umum: 7`).
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/pages/PatientDetail.tsx`
+- `src/pages/Reports.tsx`
+
+---
+
+## 35. Proteksi Backend & Halaman Status Error Terpadu *(September 2026)*
+
+**Kebutuhan:** 
+Ketika terjadi error kritis seperti kuota database D1 tercapai (limit hit), pengguna tidak boleh melihat tampilan error console atau layar blank, melainkan diarahkan secara rapi ke halaman status server dengan penjelasan informatif.
+
+**Perbaikan:**
+1. **Buat `src/pages/MaintenanceError.tsx`**:
+   - Halaman khusus modern bertema "Sistem Sedang Istirahat".
+   - Menjelaskan bahwa kuota harian server sedang terisi penuh dan akan di-reset otomatis setiap pukul **07:00 WIB** (00:00 UTC).
+   - Menjamin kepada user bahwa **seluruh data rekam medis tetap aman**.
+   - Dilengkapi tombol coba muat ulang dan hitung mundur auto-retry setiap 60 detik.
+2. **Routing & Redirection (`src/main.tsx` & `src/api.ts`)**:
+   - Menambahkan rute `/maintenance`.
+   - `api.ts` secara otomatis mendeteksi status `429`, flag `isD1Limit`, atau error string `D1_ERROR` dan langsung melakukan auto-redirect ke `/maintenance`.
+3. **Proteksi Backend (`my-cloudflare-backend`)**:
+   - `index.ts`: `app.onError` mendeteksi error D1 limit dan mengembalikan HTTP status `429 (Too Many Requests)` dengan pesan yang terstruktur.
+   - `routes/errorLogs.ts`: Melewati (skip) pencatatan log jika error disebabkan oleh limit D1 agar tidak membuang sisa kuota *write rows*.
+
+**File terkait:**
+- `src/pages/MaintenanceError.tsx` *(baru)*
+- `src/main.tsx`
+- `src/api.ts`
+- `my-cloudflare-backend/src/index.ts`
+- `my-cloudflare-backend/src/routes/errorLogs.ts`
+
+---
+
+## 36. Perbaikan False-Positive Halaman Maintenance & SQL Query Examinations *(September 2026)*
+
+**Masalah:** 
+Setelah kuota harian Cloudflare D1 direset pada pukul 07:00 WIB, aplikasi di domain production (`klinikmandiri.pages.dev`) masih mengarahkan pengguna ke halaman `/maintenance`.
+
+**Akar Masalah:**
+1. Pada `my-cloudflare-backend/src/routes/medical.ts`, query `SELECT` pada endpoint `GET /examinations` memanggil kolom `examinations.labResultImage` yang belum ada di skema tabel D1 remote, menyebabkan SQLite melempar error `SQLITE_ERROR: no such column: examinations.labResultImage`.
+2. Pada `my-cloudflare-backend/src/index.ts`, penangkap error global sebelumnya memeriksa string `D1_ERROR` secara umum sehingga seluruh error SQLite (termasuk syntax/column error) dianggap sebagai *Daily Rate Limit Exceeded* dan membalas status HTTP `429`, yang memicu frontend berpindah ke halaman `/maintenance`.
+
+**Perbaikan:**
+1. **`my-cloudflare-backend/src/routes/medical.ts`**:
+   - Menghapus kolom `labResultImage` dari klausa `SELECT` di endpoint `GET /examinations`.
+   - Memastikan filter tanggal menggunakan `COALESCE(examinations.date, examinations.createdAt)` agar seluruh data pemeriksaan lama dan baru terbaca akurat.
+2. **`my-cloudflare-backend/src/index.ts`**:
+   - Memperketat regex/string matching error handler agar **hanya merespons 429 jika pesan error eksplisit menyatakan kuota habis** (`exceeded D1's free tier daily row read limit` atau `daily row read limit`).
+3. **`src/api.ts`**:
+   - Menjaga agar redirect ke `/maintenance` hanya aktif di environment production dan hanya terjadi pada limit kuota yang valid.
+
+**File terkait:**
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `my-cloudflare-backend/src/index.ts`
+- `src/api.ts`
+
+---
+
+## 37. Arsitektur 0-D1 Row Read untuk Pencarian Diagnosa ICD-10 & Tuning Polling *(September 2026)*
+
+**Akar Masalah (Terdeteksi via Metrik Dasbor Cloudflare D1):**
+Query pencarian kamus ICD-10 (`SELECT code, title FROM icd_codes WHERE source = ? AND (code LIKE ? OR title LIKE ?)`) menghabiskan **4,23 Juta baris baca (84,6% kuota harian D1)** hanya dari **133 panggilan**. Hal ini terjadi karena:
+1. Tabel `icd_codes` berukuran masif (86.940 baris).
+2. Klausa wildcard depan `LIKE '%teks%'` pada kolom `title` memaksa SQLite melakukan *Full Table Scan* di setiap ketikan dokter.
+3. Frontend `ExaminationForm.tsx` menembak dua sumber sekaligus (`who_icd10_2019` & `icd10cm_2026`) secara paralel di setiap ketikan.
+
+**Solusi & Perbaikan:**
+1. **Pencarian In-Memory Lokal (0-D1 Reads):**
+   - Mengalihkan pencarian ICD-10 di `src/pages/ExaminationForm.tsx` dari HTTP request database menjadi pencarian in-memory langsung di JavaScript browser.
+   - Memperkaya kamus diagnosa lokal di `src/data/icd10.ts` menjadi 150+ diagnosa klinis primer paling umum di Indonesia, lengkap dengan sinonim dan kata kunci bahasa Indonesia (contoh: 'diare', 'tipes', 'maag', 'darah tinggi', 'ispa', 'luka', 'kb').
+   - Mendukung pencarian instan (0ms delay), bebas timeout, dan **menghemat 4.230.000+ baris D1 per hari (0 baris baca ke D1)**.
+2. **Tuning Interval Polling Frontend:**
+   - `src/components/Header.tsx`: Interval polling notifikasi dinaikkan dari 30s ke 60s (menghemat beban query unread notif hingga 50%).
+   - `src/pages/ExaminationList.tsx`: Interval polling antrean pasien & pemeriksaan disesuaikan dari 30s ke 45s.
+
+**File terkait:**
+- `src/data/icd10.ts`
+- `src/pages/ExaminationForm.tsx`
+- `src/components/Header.tsx`
+- `src/pages/ExaminationList.tsx`
+
+---
+
+## 38. Optimasi Efisiensi Antrean Pasien UNION, Counter RM Settings & Konsolidasi Dashboard *(September 2026)*
+
+**Masalah yang Ditemukan saat Audit Database:**
+1. **Antrean Pasien (`activeDate`)**: Query `WHERE clinicId = ? AND (poli = 'Pemeriksaan' OR id IN (SELECT...))` memaksa SQLite melakukan evaluasi scan ke seluruh 2.700 pasien klinik setiap siklus polling. Membaca 2.600 baris hanya untuk mengembalikan 9 pasien.
+2. **Generator Nomor RM Baru (`next-rm`)**: Query `SELECT MAX(CAST(REPLACE(rm...)))` membungkus kolom dalam kalkulasi fungsi string yang menonaktifkan index dan melakukan full scan 2.700 pasien setiap kali form pendaftaran dibuka.
+3. **Dashboard Polling**: Melakukan 4 HTTP request terpisah (`/patients/count`, `/examinations/today/count`, `/medicines/count`, `/broadcast`).
+
+**Solusi & Perbaikan:**
+1. **Query Antrean Pasien UNION Terindeks (`my-cloudflare-backend/src/routes/medical.ts`):**
+   - Menambahkan index komposit baru: `idx_patients_clinic_poli ON patients(clinicId, poli)`.
+   - Mengubah klausa `OR` menjadi `UNION` antara pasien antrean poli aktif dengan pemeriksaan hari ini via `JOIN`.
+   - SQLite sekarang memanfaatkan index `idx_patients_clinic_poli` dan `idx_examinations_clinic_created` secara langsung tanpa memindai seluruh data pasien.
+   - **Hasil:** Membaca baris turun 97% (dari 642k baris/hari menjadi < 15k baris/hari).
+2. **Counter Nomor RM Terpusat (`clinic_settings.lastRmNumber`):**
+   - Menambahkan kolom `lastRmNumber INTEGER DEFAULT 0` di tabel `clinic_settings`.
+   - Endpoint `/patients/next-rm` kini membaca langsung dari 1 baris counter pengaturan klinik (**hanya 1 baris terbaca**, menggantikan full scan 2.700 pasien).
+   - Pada saat simpan pasien baru (`POST /patients`), `lastRmNumber` diupdate otomatis dalam 1 atomic batch.
+3. **Index Pengurutan Obat:**
+   - Menambahkan index komposit `idx_medicines_clinic_name ON medicines(clinicId, name ASC)` untuk menghilangkan overhead memori *Temp B-Tree* pada sorting obat.
+4. **Konsolidasi Endpoint Dashboard (`/dashboard/stats`):**
+   - Membuat endpoint `GET /dashboard/stats` yang mengeksekusi 4 query ringkasan dalam 1 single D1 batch.
+   - Mengurangi network latency dan koneksi D1 hingga 75%.
+
+**File terkait:**
+- `my-cloudflare-backend/schema.sql`
+- `my-cloudflare-backend/src/routes/medical.ts`
+- `src/pages/Dashboard.tsx`
+- `note.md`
+
+---
+
+## 39. Perbaikan Bug Pelayanan Klinis & Integrasi ICD-10 WHO Lengkap (0 D1 Reads) *(September 2026)*
+
+**Keluhan & Permintaan Client:**
+1. **Tensi & Tanda Vital Hilang di Riwayat**: Pada rincian pemeriksaan pasien, data tensi tidak tampil lagi.
+2. **Kode ICD-10 Hilang/Terbatas**: Kode `Z36` (skrining antenatal) dan diagnosa spesifik lain tidak dapat ditemukan saat dokter/bidan mengetik.
+3. **Posisi Form Laboratorium**: Meminta bagian hasil laboratorium dipindahkan ke atas (tepat di bawah bagian *Objective / Vital Signs*, sebelum *Assessment / Diagnosa*).
+4. **Proteksi Hit Limit D1**: Memastikan seluruh sistem pencarian dan antrean aman dari lonjakan kuota hit limit Cloudflare D1.
+
+**Solusi & Perbaikan yang Diterapkan:**
+1. **Perbaikan Query Kolom Tanda Vital (`my-cloudflare-backend/src/routes/medical.ts`):**
+   - Kolom `tensi`, `nadi`, `suhu`, `respirasi`, `bb`, `tb`, `spo2`, `pemeriksaanFisik`, dan `riwayatPenyakitSekarang` sebelumnya terlewat dari klausa `SELECT` eksplisit di `GET /examinations`.
+   - Kolom-kolom tersebut kini dimasukkan kembali secara eksplisit ke query `SELECT`. Modal riwayat pemeriksaan (`ExaminationDetailModal.tsx`) dapat membaca dan menampilkan tensi serta vital signs dengan normal.
+2. **Relokasi Komponen Form Lab (`src/components/ExaminationForm/SoapSection.tsx` & `src/pages/ExaminationForm.tsx`):**
+   - Memindahkan komponen `<LabSection>` ke dalam `SoapSection` tepat setelah penutupan blok *Objective (O)* dan sebelum blok *Assessment (A)*.
+   - Dokter dan bidan dapat menginput hasil lab (GDS, Asam Urat, Kolesterol, Hb, foto lab) langsung berurutan setelah pemeriksaan fisik/vital signs.
+3. **Integrasi ICD-10 Standar WHO Penuh (~10.470+ Kode) Bebas Hit Limit (`src/data/icd10.ts` & `src/data/icd10_compact.json`):**
+   - Mengintegrasikan master dataset ICD-10 WHO lengkap (A00–Z99, termasuk varian `Z36` Antenatal screening, `Z34-Z39`, infeksi, penyakit dalam, bedah, kandungan, dll.) lengkap dengan terjemahan bahasa Indonesia.
+   - **Arsitektur Lazy Loaded Chunk**: Dataset diekstraksi ke chunk terpisah oleh Vite bundler (`~202 KB Gzip`). Halaman awal dan alur registrasi tidak terbebani.
+   - **0 Reads ke Database D1**: Seluruh pencarian dan autocomplete berjalan instan (0ms delay) di RAM browser client tanpa memicu query `LIKE` ke server, melindungi kuota 5 juta baris D1 secara permanen.
+4. **Pembersihan & Perbaikan Strict TypeScript Error:**
    - Menyelaraskan signature callback `subscribeDataSync` di `PatientList.tsx` dan `MedicineList.tsx`.
    - Membersihkan variabel tidak terpakai di `SKSList.tsx`, `PatientDetail.tsx`, dan `ExaminationList.tsx`.
    - Memperbaiki field dental di `ExaminationForm.tsx`.
@@ -825,3 +1020,21 @@ Query pencarian kamus ICD-10 (`SELECT code, title FROM icd_codes WHERE source = 
 - `src/pages/PatientDetail.tsx`
 - `src/pages/ExaminationList.tsx`
 - `note.md`
+
+---
+
+## 40. RCA & Perbaikan False Positive Maintenance Lock (8 September 2026)
+
+**Masalah yang Terjadi:**
+Aplikasi tiba-tiba menampilkan layar "Layanan Sedang Mengalami Gangguan" (`/maintenance`) meskipun kuota D1 di Cloudflare Dashboard masih aman / tidak ada hit limit.
+
+**Akar Masalah (Root Cause):**
+1. **Query Invalid di Backend (`medical.ts:538`)**: Endpoint `GET /visits?patientId=...` memanggil kolom `createdAt`. Namun tabel `visits` di database D1 remote hanya memiliki kolom `date` dan `updatedAt` (tanpa `createdAt`), sehingga SQLite melempar error `no such column: createdAt: SQLITE_ERROR`.
+2. **Kondisi Redirect Terlalu Longgar di Frontend (`src/api.ts:77`)**: Interceptor fetch mengecek string `errorMsg.includes("D1_ERROR")`. Karena setiap error SQLite dari Cloudflare D1 berlabel `D1_ERROR`, frontend salah mendiagnosis error query sebagai **kuota D1 habis**, lalu mengaktifkan `d1_limit_active = 'true'` dan me-redirect paksa ke layar maintenance.
+
+**Solusi & Perbaikan:**
+1. **Backend (`medical.ts`)**: Menghapus `createdAt` dari query `SELECT id, diagnosis, therapy, notes, cost, date, updatedAt FROM visits ...`.
+2. **Frontend (`src/api.ts`)**: Menghapus pengecekan `D1_ERROR` generik. Sekarang redirect maintenance hanya aktif jika backend mengembalikan flag `isD1Limit: true`, status `429`, atau pesan eksplisit `daily row read limit`.
+3. **Deployment**:
+   - Backend Cloudflare Worker dideploy (`Current Version ID: 2e2bcd48-f118-4eef-a961-56cd828e02c8`).
+   - Frontend Cloudflare Pages di-push ke branch `main` (`commit c5c4407`).
