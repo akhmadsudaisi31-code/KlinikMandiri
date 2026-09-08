@@ -1072,3 +1072,27 @@ Aplikasi tiba-tiba menampilkan layar "Layanan Sedang Mengalami Gangguan" (`/main
 1. **Pencabutan Total Redirect di `src/api.ts`**: Menghapus seluruh logika `sessionStorage.setItem('d1_limit_active', 'true')` dan `window.location.href = '/maintenance'`. Jika terjadi error 429 atau error koneksi lainnya, sistem hanya menampilkan toast notifikasi tanpa mengunci layar atau melempar user keluar dari dashboard.
 2. **Auto-Forwarding Route `/maintenance` di `src/main.tsx`**: Mengganti elemen rute `/maintenance` menjadi `<Navigate to="/" replace />`. Jika ada browser klien yang masih membuka URL `/maintenance` dari history/bookmark lama, browser akan seketika dialihkan ke beranda `/`.
 3. **Deployment**: Frontend Cloudflare Pages (`commit d5623d1`).
+
+---
+
+## 44. Pemulihan Halaman Maintenance & Audit Titik Boros D1 Row Limit (8 September 2026)
+
+**Tindakan Pemulihan Halaman Maintenance:**
+1. **`src/main.tsx`**: Mengembalikan `<Route path="/maintenance" element={<MaintenanceError />} />` agar rute pemeliharaan kembali dapat diakses secara resmi saat terjadi kuota habis.
+2. **`src/api.ts`**: Mengaktifkan kembali pengalihan ke `/maintenance` secara presisi HANYA saat kode respons HTTP adalah `429` DAN respons JSON memuat flag eksplisit `isD1Limit === true`.
+3. **Penyimpanan Status**: Menetapkan `sessionStorage.setItem('d1_limit_active', 'true')` saat dialihkan, dengan mekanisme auto-unregister service worker saat pengguna menekan tombol retry di `MaintenanceError.tsx`.
+4. **Deployment**: Frontend di-build dan di-push ke GitHub repository `main` (`commit 2eca716`).
+
+**Hasil Audit Titik Boros D1 Row Reads:**
+1. **Akumulasi Multi-Database Akun Cloudflare**:
+   - Akun Cloudflare `sudaisi74@gmail.com` membawahi 3 database D1: `klinik-db`, `walisantri_db`, dan `silsilahabdaziz`.
+   - Kuota Free Tier Cloudflare D1 sebesar 5.000.000 baris baca/hari berlaku **per akun**, bukan per database. Jika database lain aktif, kuota berkurang bersama.
+2. **Query Terboros 1: `SELECT COUNT(*) FROM patients WHERE clinicId = ?`**:
+   - Dipanggil 80 kali membaca **110.520 baris** (rata-rata 2.760 baris scan per pemanggilan karena agregasi COUNT(*) pada tabel tanpa filter index penutup).
+3. **Query Terboros 2: `SELECT ... FROM patients WHERE clinicId = ? ORDER BY createdAt DESC`**:
+   - Dipanggil 35 kali membaca **94.340 baris** (rata-rata 2.700 baris per eksekusi).
+4. **Query Terboros 3: `SELECT id FROM patients WHERE clinicId = ? AND rm = ?`**:
+   - Dipanggil 12 kali membaca **32.330 baris** (validasi nomor RM duplikat memindai seluruh data pasien per pengecekan).
+5. **Jadwal Reset Kuota**:
+   - Kuota Cloudflare D1 direset setiap hari pukul **00:00 UTC / 07:00 WIB**.
+
