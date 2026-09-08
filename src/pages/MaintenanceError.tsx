@@ -3,12 +3,24 @@ import { useEffect, useState } from 'react';
 export default function MaintenanceError() {
   const [countdown, setCountdown] = useState(60);
 
+  const handleRetry = () => {
+    sessionStorage.removeItem('d1_limit_active');
+    // Unregister service worker jika ada agar cache PWA lama terhapus
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) {
+          registration.unregister();
+        }
+      });
+    }
+    window.location.href = '/';
+  };
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          sessionStorage.removeItem('d1_limit_active');
-          window.location.href = '/login';
+          handleRetry();
           return 60;
         }
         return prev - 1;
@@ -17,11 +29,6 @@ export default function MaintenanceError() {
 
     return () => clearInterval(timer);
   }, []);
-
-  const handleRetry = () => {
-    sessionStorage.removeItem('d1_limit_active');
-    window.location.href = '/login';
-  };
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 select-none">
