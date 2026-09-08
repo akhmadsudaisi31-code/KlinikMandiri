@@ -9,6 +9,11 @@ import { initSentry } from './utils/sentry'
 // Inisialisasi Sentry SEBELUM render aplikasi
 initSentry()
 
+// Bersihkan flag d1_limit_active agar user tidak terjebak di maintenance jika bukan sedang berada di /maintenance
+if (typeof window !== 'undefined' && window.location.pathname !== '/maintenance') {
+  sessionStorage.removeItem('d1_limit_active');
+}
+
 import './index.css'
 import App from './App'
 import Login from './pages/Login'
