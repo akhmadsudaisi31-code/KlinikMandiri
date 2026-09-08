@@ -534,8 +534,8 @@ medical.get('/visits', async (c) => {
   const clinicId = getClinicId(c)
   const patientId = c.req.query('patientId')
   const { results } = await c.env.DB.prepare(
-    // EFISIENSI D1: kolom eksplisit
-    'SELECT id, diagnosis, therapy, notes, cost, date, createdAt, updatedAt FROM visits WHERE clinicId = ? AND patientId = ? ORDER BY date DESC'
+    // EFISIENSI D1: kolom eksplisit (tabel visits hanya punya date & updatedAt, tidak ada createdAt)
+    'SELECT id, diagnosis, therapy, notes, cost, date, updatedAt FROM visits WHERE clinicId = ? AND patientId = ? ORDER BY date DESC'
   ).bind(clinicId, patientId).all()
   return c.json(results)
 })

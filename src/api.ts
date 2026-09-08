@@ -74,7 +74,7 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
             errorBody.isD1Limit ||
             response.status === 429 ||
             errorMsg.includes("exceeded D1's free tier daily row read limit") ||
-            errorMsg.includes("D1_ERROR")
+            errorMsg.includes("daily row read limit")
           )
         ) {
           if (window.location.pathname !== '/maintenance') {
