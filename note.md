@@ -1050,3 +1050,16 @@ Aplikasi tiba-tiba menampilkan layar "Layanan Sedang Mengalami Gangguan" (`/main
 4. **Deployment**:
    - Backend Cloudflare Worker (`Current Version ID: 38e6e68c-e94e-4f60-9824-cd7a379bb292`).
    - Frontend Cloudflare Pages (`commit 01e31e4`).
+
+---
+
+## 42. Perbaikan Cache Service Worker PWA & Auto-Bypass Maintenance (8 September 2026)
+
+**Akar Masalah Klien Masih Tertahan di Layanan Sedang Mengalami Gangguan:**
+1. **PWA Service Worker Cache**: File `sw.js` browser/tablet menyimpan aset JavaScript lama (`index-8Ea1kbp7.js`), sehingga saat user mengklik "Coba Muat Ulang", browser menyajikan kembali file JS dari cache yang masih menyimpan logika lama.
+2. **Loop Redirect ke `/login`**: Saat countdown 60 detik selesai atau tombol di-klik, `MaintenanceError.tsx` me-redirect ke `/login`. Jika user sudah memiliki sesi login aktif, `Login.tsx` otomatis mengarahkan ke dashboard `/`, lalu terjadi background fetch yang memicu siklus redirect berulang jika cache belum bersih.
+
+**Solusi yang Diterapkan:**
+1. **Unregister Service Worker (`src/pages/MaintenanceError.tsx`)**: Saat tombol "Coba Muat Ulang" atau countdown selesai dieksekusi, sistem secara aktif memanggil `navigator.serviceWorker.getRegistrations()` dan meng-unregister Service Worker lama untuk memaksa browser mengambil bundle produksi terbaru dari server.
+2. **Direct Root Redirect**: Redirect diarahkan langsung ke root `/` (bukan `/login`), memotong loop redirect login.
+3. **Deployment**: Frontend Cloudflare Pages (`commit 573d77b`).
