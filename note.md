@@ -1063,3 +1063,12 @@ Aplikasi tiba-tiba menampilkan layar "Layanan Sedang Mengalami Gangguan" (`/main
 1. **Unregister Service Worker (`src/pages/MaintenanceError.tsx`)**: Saat tombol "Coba Muat Ulang" atau countdown selesai dieksekusi, sistem secara aktif memanggil `navigator.serviceWorker.getRegistrations()` dan meng-unregister Service Worker lama untuk memaksa browser mengambil bundle produksi terbaru dari server.
 2. **Direct Root Redirect**: Redirect diarahkan langsung ke root `/` (bukan `/login`), memotong loop redirect login.
 3. **Deployment**: Frontend Cloudflare Pages (`commit 573d77b`).
+
+---
+
+## 43. Pencabutan Total Auto-Redirect Maintenance & Forwarding Route ke Root (8 September 2026)
+
+**Tindakan yang Diterapkan:**
+1. **Pencabutan Total Redirect di `src/api.ts`**: Menghapus seluruh logika `sessionStorage.setItem('d1_limit_active', 'true')` dan `window.location.href = '/maintenance'`. Jika terjadi error 429 atau error koneksi lainnya, sistem hanya menampilkan toast notifikasi tanpa mengunci layar atau melempar user keluar dari dashboard.
+2. **Auto-Forwarding Route `/maintenance` di `src/main.tsx`**: Mengganti elemen rute `/maintenance` menjadi `<Navigate to="/" replace />`. Jika ada browser klien yang masih membuka URL `/maintenance` dari history/bookmark lama, browser akan seketika dialihkan ke beranda `/`.
+3. **Deployment**: Frontend Cloudflare Pages (`commit d5623d1`).
