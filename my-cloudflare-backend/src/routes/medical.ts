@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { getEdgeCache, setEdgeCache, invalidateEdgeCache } from '../utils/cache'
 
 type Bindings = {
   DB: D1Database
@@ -14,6 +15,50 @@ const getPatientDeleteStatements = (db: D1Database, patientId: string, clinicId:
   db.prepare('DELETE FROM notifications WHERE patientId = ? AND clinicId = ?').bind(patientId, clinicId),
   db.prepare('DELETE FROM patients WHERE id = ? AND clinicId = ?').bind(patientId, clinicId)
 ]
+
+// ARSITEKTUR HEMAT D1: Ambil counter dari clinic_settings (1 baris saja)
+// Menghilangkan full table scan ribuan baris dari SELECT COUNT(*)
+async function getClinicCounters(db: D1Database, clinicId: string) {
+  try {
+    const settings: any = await db.prepare(
+      'SELECT totalPatients, totalMedicines FROM clinic_settings WHERE clinicId = ?'
+    ).bind(clinicId).first()
+
+    let totalPatients = (settings && typeof settings.totalPatients === 'number' && settings.totalPatients >= 0)
+      ? settings.totalPatients
+      : null
+    let totalMedicines = (settings && typeof settings.totalMedicines === 'number' && settings.totalMedicines >= 0)
+      ? settings.totalMedicines
+      : null
+
+    if (totalPatients === null || totalMedicines === null) {
+      const [patCount, medCount]: any = await Promise.all([
+        totalPatients === null ? db.prepare('SELECT COUNT(*) as total FROM patients WHERE clinicId = ?').bind(clinicId).first() : Promise.resolve({ total: totalPatients }),
+        totalMedicines === null ? db.prepare('SELECT COUNT(*) as total FROM medicines WHERE clinicId = ?').bind(clinicId).first() : Promise.resolve({ total: totalMedicines })
+      ])
+
+      totalPatients = patCount?.total || 0
+      totalMedicines = medCount?.total || 0
+
+      try {
+        await db.prepare(
+          'UPDATE clinic_settings SET totalPatients = ?, totalMedicines = ? WHERE clinicId = ?'
+        ).bind(totalPatients, totalMedicines, clinicId).run()
+      } catch (e) {}
+    }
+
+    return { totalPatients, totalMedicines }
+  } catch (err) {
+    const [patCount, medCount]: any = await Promise.all([
+      db.prepare('SELECT COUNT(*) as total FROM patients WHERE clinicId = ?').bind(clinicId).first(),
+      db.prepare('SELECT COUNT(*) as total FROM medicines WHERE clinicId = ?').bind(clinicId).first()
+    ])
+    return {
+      totalPatients: patCount?.total || 0,
+      totalMedicines: medCount?.total || 0
+    }
+  }
+}
 
 // --- PATIENTS ---
 medical.get('/patients', async (c) => {
@@ -78,8 +123,14 @@ medical.get('/patients', async (c) => {
 
 medical.get('/patients/count', async (c) => {
   const clinicId = getClinicId(c)
-  const result: any = await c.env.DB.prepare('SELECT COUNT(*) as total FROM patients WHERE clinicId = ?').bind(clinicId).first()
-  return c.json({ total: result?.total || 0 })
+  const cacheKey = `patients_count_${clinicId}`
+  const cached = getEdgeCache(cacheKey)
+  if (cached !== null) return c.json(cached)
+
+  const counters = await getClinicCounters(c.env.DB, clinicId)
+  const res = { total: counters.totalPatients }
+  setEdgeCache(cacheKey, res, 30)
+  return c.json(res)
 })
 
 medical.get('/patients/next-rm', async (c) => {
@@ -218,7 +269,13 @@ medical.post('/patients', async (c) => {
       body.address, body.occupation || null, body.dob, body.ageYears, body.ageMonths, body.ageDisplay, body.nik || null, body.poli, body.allergies || null, body.keluhan || null, clinicId, now, now
     ).run()
   }
-  
+
+  // Update counter pasien di clinic_settings
+  try {
+    await c.env.DB.prepare('UPDATE clinic_settings SET totalPatients = COALESCE(totalPatients, 0) + 1 WHERE clinicId = ?').bind(clinicId).run()
+  } catch (e) {}
+
+  invalidateEdgeCache(clinicId)
   return c.json({ id })
 })
 
@@ -253,7 +310,8 @@ medical.put('/patients/:id', async (c) => {
 
     await c.env.DB.prepare(query).bind(...values).run()
   }
-  
+
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
@@ -268,22 +326,41 @@ medical.delete('/patients/:id', async (c) => {
   if (!patient) return c.json({ error: 'Data pasien tidak ditemukan atau sudah dihapus.' }, 404)
 
   await c.env.DB.batch(getPatientDeleteStatements(c.env.DB, id, clinicId))
+
+  // Kurangi counter pasien di clinic_settings
+  try {
+    await c.env.DB.prepare('UPDATE clinic_settings SET totalPatients = MAX(0, COALESCE(totalPatients, 0) - 1) WHERE clinicId = ?').bind(clinicId).run()
+  } catch (e) {}
+
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
 // --- MEDICINES ---
 medical.get('/medicines', async (c) => {
   const clinicId = getClinicId(c)
+  const cacheKey = `medicines_list_${clinicId}`
+  const cached = getEdgeCache(cacheKey)
+  if (cached !== null) return c.json(cached)
+
   const { results } = await c.env.DB.prepare(
     'SELECT id, name, unit, price, createdAt FROM medicines WHERE clinicId = ? ORDER BY name ASC LIMIT 1000'
   ).bind(clinicId).all()
+
+  setEdgeCache(cacheKey, results, 60) // cache 60s
   return c.json(results)
 })
 
 medical.get('/medicines/count', async (c) => {
   const clinicId = getClinicId(c)
-  const result: any = await c.env.DB.prepare('SELECT COUNT(*) as total FROM medicines WHERE clinicId = ?').bind(clinicId).first()
-  return c.json({ total: result?.total || 0 })
+  const cacheKey = `medicines_count_${clinicId}`
+  const cached = getEdgeCache(cacheKey)
+  if (cached !== null) return c.json(cached)
+
+  const counters = await getClinicCounters(c.env.DB, clinicId)
+  const res = { total: counters.totalMedicines }
+  setEdgeCache(cacheKey, res, 60)
+  return c.json(res)
 })
 
 medical.get('/medicines/:id', async (c) => {
@@ -305,7 +382,12 @@ medical.post('/medicines', async (c) => {
   await c.env.DB.prepare(
     'INSERT INTO medicines (id, clinicId, name, unit, price, createdBy) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(id, clinicId, body.name, body.unit, body.price, clinicId).run()
-  
+
+  try {
+    await c.env.DB.prepare('UPDATE clinic_settings SET totalMedicines = COALESCE(totalMedicines, 0) + 1 WHERE clinicId = ?').bind(clinicId).run()
+  } catch (e) {}
+
+  invalidateEdgeCache(clinicId)
   return c.json({ id })
 })
 
@@ -317,7 +399,8 @@ medical.put('/medicines/:id', async (c) => {
   await c.env.DB.prepare(
     'UPDATE medicines SET name = ?, unit = ?, price = ?, updatedAt = ? WHERE id = ? AND clinicId = ?'
   ).bind(body.name, body.unit, body.price || 0, new Date().toISOString(), id, clinicId).run()
-  
+
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
@@ -325,6 +408,12 @@ medical.delete('/medicines/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
   await c.env.DB.prepare('DELETE FROM medicines WHERE id = ? AND clinicId = ?').bind(id, clinicId).run()
+
+  try {
+    await c.env.DB.prepare('UPDATE clinic_settings SET totalMedicines = MAX(0, COALESCE(totalMedicines, 0) - 1) WHERE clinicId = ?').bind(clinicId).run()
+  } catch (e) {}
+
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
@@ -473,7 +562,8 @@ medical.put('/examinations/:id', async (c) => {
     body.extendedData_json, new Date().toISOString(),
     id, clinicId
   ).run()
-  
+
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
@@ -481,6 +571,7 @@ medical.delete('/examinations/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
   await c.env.DB.prepare('DELETE FROM examinations WHERE id = ? AND clinicId = ?').bind(id, clinicId).run()
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
@@ -525,7 +616,8 @@ medical.post('/examinations', async (c) => {
   await c.env.DB.prepare(
     'UPDATE patients SET keluhan = NULL WHERE id = ? AND clinicId = ?'
   ).bind(body.patientId, clinicId).run()
-  
+
+  invalidateEdgeCache(clinicId)
   return c.json({ id })
 })
 
@@ -582,7 +674,10 @@ medical.delete('/visits/:id', async (c) => {
 medical.get('/notifications', async (c) => {
   const clinicId = getClinicId(c)
   const toRole = c.req.query('toRole')
-  // EFISIENSI D1: kolom eksplisit, tidak lagi SELECT *
+  const cacheKey = `notifications_${clinicId}_${toRole || 'all'}`
+  const cached = getEdgeCache(cacheKey)
+  if (cached !== null) return c.json(cached)
+
   let query = 'SELECT id, type, patientId, patientName, message, isRead, createdAt, toRole FROM notifications WHERE clinicId = ? AND isRead = 0'
   const params: any[] = [clinicId]
 
@@ -594,6 +689,7 @@ medical.get('/notifications', async (c) => {
   query += ' ORDER BY createdAt DESC LIMIT 20'
 
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
+  setEdgeCache(cacheKey, results, 15) // cache 15s di edge
   return c.json(results)
 })
 
@@ -603,6 +699,8 @@ medical.put('/notifications/:id/read', async (c) => {
   await c.env.DB.prepare(
     'UPDATE notifications SET isRead = 1 WHERE id = ? AND clinicId = ?'
   ).bind(id, clinicId).run()
+
+  invalidateEdgeCache(clinicId)
   return c.json({ success: true })
 })
 
@@ -620,6 +718,7 @@ medical.post('/notifications', async (c) => {
     'INSERT INTO notifications (id, clinicId, type, patientId, patientName, message, toRole) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).bind(id, clinicId, body.type, body.patientId, body.patientName, body.message, body.toRole).run()
   
+  invalidateEdgeCache(clinicId)
   return c.json({ id })
 })
 
@@ -664,33 +763,39 @@ medical.get('/stats/advanced', async (c) => {
 })
 
 // ARSITEKTUR HEMAT D1: Endpoint gabungan 4-in-1 untuk Dashboard
-// Menghilangkan 4 network roundtrip dan mengeksekusi dalam 1 batch D1 terpadu
+// Menghilangkan full table scan (COUNT pasien & obat) dan memanfaatkan counter 1 baris
 medical.get('/dashboard/stats', async (c) => {
   const clinicId = getClinicId(c)
+  const cacheKey = `dashboard_stats_${clinicId}`
+  const cached = getEdgeCache(cacheKey)
+  if (cached !== null) return c.json(cached)
+
   const now = new Date()
   const wibTimeStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now)
   const startIso = new Date(`${wibTimeStr}T00:00:00+07:00`).toISOString()
   const endIso = new Date(`${wibTimeStr}T23:59:59.999+07:00`).toISOString()
 
   try {
-    const [patientsRes, examsRes, medicinesRes, broadcastRes] = await c.env.DB.batch([
-      c.env.DB.prepare('SELECT COUNT(*) as total FROM patients WHERE clinicId = ?').bind(clinicId),
-      c.env.DB.prepare('SELECT COUNT(*) as total FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ?').bind(clinicId, startIso, endIso),
-      c.env.DB.prepare('SELECT COUNT(*) as total FROM medicines WHERE clinicId = ?').bind(clinicId),
-      c.env.DB.prepare('SELECT message FROM broadcasts ORDER BY createdAt DESC LIMIT 1')
+    const [counters, examsRes, broadcastRes] = await Promise.all([
+      getClinicCounters(c.env.DB, clinicId),
+      c.env.DB.prepare('SELECT COUNT(*) as total FROM examinations WHERE clinicId = ? AND createdAt >= ? AND createdAt <= ?').bind(clinicId, startIso, endIso).first(),
+      c.env.DB.prepare('SELECT message FROM broadcasts ORDER BY createdAt DESC LIMIT 1').first()
     ])
 
-    const totalPatients = (patientsRes.results?.[0] as any)?.total || 0
-    const todayExaminations = (examsRes.results?.[0] as any)?.total || 0
-    const medicineStock = (medicinesRes.results?.[0] as any)?.total || 0
-    const announcement = (broadcastRes.results?.[0] as any)?.message || null
+    const totalPatients = counters.totalPatients
+    const todayExaminations = (examsRes as any)?.total || 0
+    const medicineStock = counters.totalMedicines
+    const announcement = (broadcastRes as any)?.message || null
 
-    return c.json({
+    const result = {
       totalPatients,
       todayExaminations,
       medicineStock,
       announcement
-    })
+    }
+
+    setEdgeCache(cacheKey, result, 20) // cache 20 detik di Worker isolate
+    return c.json(result)
   } catch (err: any) {
     console.error("Dashboard stats error:", err)
     return c.json({ totalPatients: 0, todayExaminations: 0, medicineStock: 0, announcement: null })

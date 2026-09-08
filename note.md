@@ -1096,3 +1096,40 @@ Aplikasi tiba-tiba menampilkan layar "Layanan Sedang Mengalami Gangguan" (`/main
 5. **Jadwal Reset Kuota**:
    - Kuota Cloudflare D1 direset setiap hari pukul **00:00 UTC / 07:00 WIB**.
 
+---
+
+## 45. Implementasi 4 Pilar Solusi Top Free Tier Anti-Hit Limit (8 September 2026)
+
+**Tujuan:**
+Menghilangkan risiko terlampauinya batas 5.000.000 row reads Cloudflare D1 secara permanen pada Free Tier ($0) tanpa memindahkan database ke akun Cloudflare terpisah.
+
+**Pilar Perbaikan yang Diterapkan:**
+
+1. **Pilar 1: Eliminasi Agregasi `COUNT(*)` Menjadi Tabel Counter 1-Baris (`clinic_settings`):**
+   - Membuat migrasi `migrations/0006_add_counter_columns.sql` yang menambahkan kolom `totalPatients` dan `totalMedicines` di tabel `clinic_settings`.
+   - Mengubah `GET /patients/count`, `GET /medicines/count`, dan `GET /dashboard/stats` agar membaca counter agregat dari `clinic_settings` (hanya membaca **1 baris**, memangkas scan 2.800 baris per panggilan).
+   - Menambahkan auto-increment dan auto-decrement pada endpoint `POST/DELETE /patients` dan `POST/DELETE /medicines`.
+
+2. **Pilar 2: Cloudflare Worker Edge In-Memory Isolate Cache (`my-cloudflare-backend/src/utils/cache.ts`):**
+   - Mengimplementasikan in-memory cache berkinerja tinggi langsung pada RAM Worker isolate Cloudflare (0 network latency, 0 baris D1).
+   - TTL Cache:
+     - `/dashboard/stats`: 20 detik
+     - `/notifications`: 15 detik
+     - `/medicines`: 60 detik
+     - `/patients/count`: 30 detik
+   - Auto-invalidation instan pada setiap aksi mutasi rekam medis (`POST/PUT/DELETE` pasien, obat, pemeriksaan, dan notifikasi).
+
+3. **Pilar 3: Sinkronisasi Cross-Tab Shared Cache (`src/utils/apiCache.ts`):**
+   - Memperbarui `apiCache.ts` dengan dukungan penyimpanan `localStorage` berbasis timestamp.
+   - Ketika 1 komputer klinik membuka beberapa tab sekaligus (misal tab Antrean, tab Pendaftaran, tab Obat), seluruh tab saling berbagi cache yang sama. Tab kedua dan ketiga tidak lagi memicu HTTP request ke backend.
+   - Mengintegrasikan listener `subscribeDataSync` agar saat salah satu tab melakukan perubahan data, cache di seluruh tab lain langsung dibersihkan seketika.
+
+4. **Pilar 4: Caching Katalog Obat di Browser Client (`src/api.ts`):**
+   - Menetapkan default cache TTL 10 menit untuk `/medicines` dan `/medicines/count` di sisi frontend.
+   - Dokter yang membuka form pemeriksaan pasien berulang kali tidak lagi memicu query database katalog obat berulang ke D1.
+
+**Hasil Pengujian & Deployment:**
+- Backend Worker dikompilasi (`npx tsc --noEmit` lulus 0 error) dan dideploy ke Cloudflare Worker (`Current Version ID: 4f975b39-c793-46b0-8bca-02f52dc75651`).
+- Frontend dikompilasi (`npm run build` sukses 0 error) dan di-push ke GitHub repository `main`.
+
+

@@ -1,4 +1,5 @@
-import { broadcastDataSync, inferSyncResources } from './utils/dataSync';
+import { broadcastDataSync, inferSyncResources, subscribeDataSync } from './utils/dataSync';
+import { getCached, setCache, invalidateCache } from './utils/apiCache';
 import toast from 'react-hot-toast';
 import { reportError } from './hooks/useErrorLogger';
 
@@ -152,9 +153,47 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   }
 }
 
+// Konfigurasi TTL Cache untuk endpoint yang sering di-polling / dibaca
+const DEFAULT_CACHE_TTLS: Record<string, number> = {
+  '/medicines': 10 * 60 * 1000,       // 10 menit (katalog obat sangat jarang berubah)
+  '/medicines/count': 10 * 60 * 1000, // 10 menit
+  '/dashboard/stats': 20 * 1000,      // 20 detik
+  '/patients/count': 60 * 1000,       // 60 detik
+  '/notifications': 15 * 1000,        // 15 detik
+};
+
+// Sinkronisasi Cross-Tab: Invalidate cache lokal saat tab lain melakukan mutasi
+if (typeof window !== 'undefined') {
+  subscribeDataSync([], (detail) => {
+    if (detail?.endpoint) {
+      invalidateLocalCacheForEndpoint(detail.endpoint);
+    }
+  });
+}
+
+function invalidateLocalCacheForEndpoint(endpoint: string) {
+  if (endpoint.includes('/patients')) {
+    invalidateCache('/patients');
+    invalidateCache('/dashboard/stats');
+  } else if (endpoint.includes('/medicines')) {
+    invalidateCache('/medicines');
+    invalidateCache('/dashboard/stats');
+  } else if (endpoint.includes('/examinations')) {
+    invalidateCache('/examinations');
+    invalidateCache('/dashboard/stats');
+  } else if (endpoint.includes('/notifications')) {
+    invalidateCache('/notifications');
+  } else {
+    invalidateCache(endpoint);
+  }
+}
+
 function maybeBroadcastMutation(endpoint: string, method?: string) {
   const normalizedMethod = (method || 'GET').toUpperCase();
   if (normalizedMethod === 'GET') return;
+
+  // Bersihkan cache lokal seketika
+  invalidateLocalCacheForEndpoint(endpoint);
 
   const resources = inferSyncResources(endpoint);
   if (resources.length === 0) return;
@@ -168,7 +207,28 @@ function maybeBroadcastMutation(endpoint: string, method?: string) {
 }
 
 export const api = {
-  get: (endpoint: string) => fetchAPI(endpoint),
+  get: async (endpoint: string, options?: { bypassCache?: boolean }) => {
+    // 1. Cek apakah endpoint memiliki konfigurasi TTL cache
+    const matchedKey = Object.keys(DEFAULT_CACHE_TTLS).find((k) => endpoint === k || endpoint.startsWith(k + '?'));
+    const ttl = matchedKey ? DEFAULT_CACHE_TTLS[matchedKey] : 0;
+
+    if (!options?.bypassCache && ttl > 0) {
+      const cached = getCached(endpoint, ttl);
+      if (cached !== null) {
+        return cached;
+      }
+    }
+
+    // 2. Jika tidak ada di cache, lakukan fetch ke server
+    const data = await fetchAPI(endpoint);
+
+    // 3. Simpan hasil ke cross-tab cache
+    if (ttl > 0 && data !== null && data !== undefined) {
+      setCache(endpoint, data, true);
+    }
+
+    return data;
+  },
   post: (endpoint: string, data: any) =>
     fetchAPI(endpoint, {
       method: 'POST',

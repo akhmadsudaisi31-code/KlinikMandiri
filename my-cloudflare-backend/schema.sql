@@ -208,6 +208,8 @@ CREATE TABLE IF NOT EXISTS clinic_settings (
     clinicPhone TEXT,
     lastSickLeaveNumber INTEGER DEFAULT 0,
     lastRmNumber INTEGER DEFAULT 0,
+    totalPatients INTEGER DEFAULT 0,
+    totalMedicines INTEGER DEFAULT 0,
     sickLeaveTemplate TEXT,
     enabledFeatures_json TEXT DEFAULT '{"anc": true, "kb": true, "immunization": true, "dental": true}',
     updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
