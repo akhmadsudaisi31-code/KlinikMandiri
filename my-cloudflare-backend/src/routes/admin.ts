@@ -1,10 +1,13 @@
 import { Hono } from 'hono'
 import { sign } from 'hono/jwt'
+import { getEdgeCache, setEdgeCache } from '../utils/cache'
 
 type Bindings = {
   DB: D1Database
   JWT_SECRET: string
   RESEND_API_KEY: string
+  CF_API_TOKEN?: string
+  CF_ACCOUNT_ID?: string
 }
 
 const admin = new Hono<{ Bindings: Bindings }>()
@@ -302,6 +305,117 @@ admin.post('/broadcast', async (c) => {
     }
 
     return c.json({ success: true })
+})
+
+// MONITORING KUOTA D1 RESMI DARI CLOUDFLARE GRAPHQL ANALYTICS
+admin.get('/d1-metrics', async (c) => {
+    const token = c.env.CF_API_TOKEN
+    const accountTag = c.env.CF_ACCOUNT_ID || '35cd387a4da0ee936d60d97ad49effd5'
+    const databaseId = '6ac0bc4c-50cc-4600-b230-ae967d238a5f'
+
+    if (!token) {
+        return c.json({ 
+            configured: false, 
+            message: 'CF_API_TOKEN belum diset di Worker secret.' 
+        })
+    }
+
+    const cacheKey = 'cf_d1_metrics_cache'
+    const cached = getEdgeCache(cacheKey)
+    if (cached !== null) return c.json(cached)
+
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0, 10)
+
+    const query = `
+    query GetD1Analytics($accountTag: String!, $databaseId: String!, $date: String!) {
+      viewer {
+        accounts(filter: {accountTag: $accountTag}) {
+          accountTotal: d1AnalyticsAdaptiveGroups(limit: 1, filter: {date_geq: $date}) {
+            sum {
+              readQueries
+              writeQueries
+              rowsRead
+              rowsWritten
+            }
+          }
+          dbSpecific: d1AnalyticsAdaptiveGroups(limit: 1, filter: {databaseId: $databaseId, date_geq: $date}) {
+            sum {
+              readQueries
+              writeQueries
+              rowsRead
+              rowsWritten
+            }
+          }
+        }
+      }
+    }
+    `
+
+    try {
+        const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                query,
+                variables: {
+                    accountTag,
+                    databaseId,
+                    date: dateStr,
+                }
+            })
+        })
+
+        const json: any = await res.json()
+        const accountSum = json?.data?.viewer?.accounts?.[0]?.accountTotal?.[0]?.sum
+        const dbSum = json?.data?.viewer?.accounts?.[0]?.dbSpecific?.[0]?.sum
+
+        const rowsRead = accountSum?.rowsRead || 0
+        const rowsReadLimit = 5000000
+        const rowsWritten = accountSum?.rowsWritten || 0
+        const rowsWrittenLimit = 100000
+        const readQueries = accountSum?.readQueries || 0
+        const writeQueries = accountSum?.writeQueries || 0
+
+        const percent = Number(((rowsRead / rowsReadLimit) * 100).toFixed(2))
+        let status = 'normal'
+        if (percent >= 80) status = 'danger'
+        else if (percent >= 50) status = 'warning'
+
+        const result = {
+            configured: true,
+            status,
+            account: {
+                rowsRead,
+                rowsReadLimit,
+                rowsReadPercent: percent,
+                rowsWritten,
+                rowsWrittenLimit,
+                readQueries,
+                writeQueries
+            },
+            database: {
+                name: 'klinik-db',
+                rowsRead: dbSum?.rowsRead || 0,
+                rowsWritten: dbSum?.rowsWritten || 0,
+                readQueries: dbSum?.readQueries || 0
+            },
+            resetTime: '07:00 WIB (00:00 UTC)',
+            lastUpdated: new Date().toISOString()
+        }
+
+        setEdgeCache(cacheKey, result, 30) // cache 30 detik di RAM Worker
+        return c.json(result)
+    } catch (e: any) {
+        return c.json({ 
+            configured: true, 
+            error: 'Gagal mengambil metrik Cloudflare API', 
+            detail: e.message 
+        }, 500)
+    }
 })
 
 export default admin

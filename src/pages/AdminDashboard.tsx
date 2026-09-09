@@ -40,7 +40,23 @@ function AdminDashboard() {
   const { user, loading: authLoading, login: userLogin } = useAuth();
   const [clinics, setClinics] = useState<ClinicEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'clinics' | 'plans' | 'addons' | 'errorlogs'>('clinics');
+  const [activeTab, setActiveTab] = useState<'clinics' | 'plans' | 'addons' | 'roadmap' | 'broadcast' | 'errorlogs' | 'd1metrics'>('clinics');
+
+  // D1 Metrics State
+  const [d1Metrics, setD1Metrics] = useState<any>(null);
+  const [d1MetricsLoading, setD1MetricsLoading] = useState(false);
+
+  const fetchD1Metrics = async () => {
+    setD1MetricsLoading(true);
+    try {
+      const res: any = await api.get('/admin/d1-metrics', { bypassCache: true });
+      setD1Metrics(res);
+    } catch (e: any) {
+      toast.error('Gagal mengambil metrik D1: ' + (e?.message || 'Error'));
+    } finally {
+      setD1MetricsLoading(false);
+    }
+  };
 
   // Error Logs State
   const [errorLogs, setErrorLogs] = useState<any[]>([]);
@@ -479,6 +495,12 @@ function AdminDashboard() {
             className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'errorlogs' ? 'bg-red-600 text-white shadow-lg shadow-red-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
           >
             🔴 Error Logs
+          </button>
+          <button 
+            onClick={() => { setActiveTab('d1metrics'); fetchD1Metrics(); }}
+            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'd1metrics' ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+            ⚡ Kuota D1
           </button>
       </div>
 
@@ -943,6 +965,228 @@ function AdminDashboard() {
                             Berikutnya →
                         </button>
                     </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'd1metrics' ? (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${
+                    d1Metrics?.status === 'danger' ? 'bg-red-500 animate-ping' :
+                    d1Metrics?.status === 'warning' ? 'bg-amber-500 animate-pulse' :
+                    'bg-emerald-500'
+                  }`}></span>
+                  Monitoring Cloudflare D1
+                </h2>
+                <p className="text-xs text-gray-400 font-medium mt-0.5">
+                  Metriks penggunaan database real-time via Cloudflare GraphQL API • Reset 07:00 WIB (00:00 UTC)
+                </p>
+              </div>
+              <button 
+                onClick={fetchD1Metrics}
+                disabled={d1MetricsLoading}
+                className="px-5 py-2.5 text-xs font-black bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 self-start md:self-auto"
+              >
+                {d1MetricsLoading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>MEMUAT...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>↻ REFRESH METRIKS</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {d1MetricsLoading && !d1Metrics ? (
+              <div className="text-center py-24">
+                <div className="w-12 h-12 border-4 border-gray-100 border-t-amber-500 rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-xs font-black text-gray-300 uppercase tracking-[0.2em]">Meminta Metriks dari Cloudflare API...</p>
+              </div>
+            ) : !d1Metrics?.configured ? (
+              <div className="p-8 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-200 dark:border-amber-800 rounded-3xl text-center space-y-3">
+                <div className="text-4xl">⚠️</div>
+                <h3 className="text-base font-black uppercase tracking-tight text-amber-900 dark:text-amber-200">
+                  Cloudflare API Token Belum Dikonfigurasi
+                </h3>
+                <p className="text-xs text-amber-700 dark:text-amber-400 max-w-md mx-auto">
+                  {d1Metrics?.message || 'Tambahkan secret CF_API_TOKEN dan variabel CF_ACCOUNT_ID pada Cloudflare Worker.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Health Status Banner */}
+                <div className={`p-6 rounded-3xl border-2 flex items-center justify-between flex-wrap gap-4 ${
+                  d1Metrics.status === 'danger' ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200' :
+                  d1Metrics.status === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200' :
+                  'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className="text-3xl">
+                      {d1Metrics.status === 'danger' ? '🚨' : d1Metrics.status === 'warning' ? '⚠️' : '✅'}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black uppercase tracking-tight">
+                        Status Kuota Harian: {
+                          d1Metrics.status === 'danger' ? 'KRITIS (>80%)' :
+                          d1Metrics.status === 'warning' ? 'WASPADA (>50%)' :
+                          'SANGAT AMAN (<50%)'
+                        }
+                      </h3>
+                      <p className="text-xs opacity-80 font-medium">
+                        Penggunaan baris baca: {d1Metrics.account.rowsReadPercent}% dari batas harian 5.000.000 baris.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Reset Otomatis</p>
+                    <p className="text-xs font-black">{d1Metrics.resetTime}</p>
+                  </div>
+                </div>
+
+                {/* Metric Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                  {/* Rows Read */}
+                  <div className="p-6 bg-gray-50 dark:bg-gray-800/60 rounded-3xl border border-gray-100 dark:border-gray-700 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Rows Read (Akun)</span>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                        d1Metrics.account.rowsReadPercent >= 80 ? 'bg-red-100 text-red-600' :
+                        d1Metrics.account.rowsReadPercent >= 50 ? 'bg-amber-100 text-amber-600' :
+                        'bg-emerald-100 text-emerald-600'
+                      }`}>
+                        {d1Metrics.account.rowsReadPercent}%
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+                        {d1Metrics.account.rowsRead.toLocaleString('id-ID')}
+                      </p>
+                      <p className="text-[11px] text-gray-400 font-bold mt-1">
+                        / {d1Metrics.account.rowsReadLimit.toLocaleString('id-ID')} baris
+                      </p>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                      <div 
+                        className={`h-2.5 rounded-full transition-all duration-500 ${
+                          d1Metrics.account.rowsReadPercent >= 80 ? 'bg-red-500' :
+                          d1Metrics.account.rowsReadPercent >= 50 ? 'bg-amber-500' :
+                          'bg-emerald-500'
+                        }`}
+                        style={{ width: `${Math.min(Math.max(d1Metrics.account.rowsReadPercent, 1), 100)}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 font-medium">Batas free tier Cloudflare D1</p>
+                  </div>
+
+                  {/* Rows Written */}
+                  <div className="p-6 bg-gray-50 dark:bg-gray-800/60 rounded-3xl border border-gray-100 dark:border-gray-700 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Rows Written (Akun)</span>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-100 text-blue-600">
+                        {((d1Metrics.account.rowsWritten / d1Metrics.account.rowsWrittenLimit) * 100).toFixed(2)}%
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+                        {d1Metrics.account.rowsWritten.toLocaleString('id-ID')}
+                      </p>
+                      <p className="text-[11px] text-gray-400 font-bold mt-1">
+                        / {d1Metrics.account.rowsWrittenLimit.toLocaleString('id-ID')} baris
+                      </p>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                      <div 
+                        className="h-2.5 bg-blue-500 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(Math.max((d1Metrics.account.rowsWritten / d1Metrics.account.rowsWrittenLimit) * 100, 1), 100)}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 font-medium">Batas tulis: 100.000 / hari</p>
+                  </div>
+
+                  {/* Read Queries */}
+                  <div className="p-6 bg-gray-50 dark:bg-gray-800/60 rounded-3xl border border-gray-100 dark:border-gray-700 space-y-3">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Read Queries</span>
+                    <div>
+                      <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+                        {d1Metrics.account.readQueries.toLocaleString('id-ID')}
+                      </p>
+                      <p className="text-[11px] text-gray-400 font-bold mt-1">
+                        Total SQL SELECT dieksekusi hari ini
+                      </p>
+                    </div>
+                    <div className="pt-2 border-t border-gray-200 dark:border-gray-700 text-[10px] text-gray-500 font-medium">
+                      Rata-rata: ~{d1Metrics.account.readQueries > 0 ? (d1Metrics.account.rowsRead / d1Metrics.account.readQueries).toFixed(1) : 0} baris / query
+                    </div>
+                  </div>
+
+                  {/* Write Queries */}
+                  <div className="p-6 bg-gray-50 dark:bg-gray-800/60 rounded-3xl border border-gray-100 dark:border-gray-700 space-y-3">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Write Queries</span>
+                    <div>
+                      <p className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+                        {d1Metrics.account.writeQueries.toLocaleString('id-ID')}
+                      </p>
+                      <p className="text-[11px] text-gray-400 font-bold mt-1">
+                        INSERT / UPDATE / DELETE dieksekusi
+                      </p>
+                    </div>
+                    <div className="pt-2 border-t border-gray-200 dark:border-gray-700 text-[10px] text-gray-500 font-medium">
+                      Database: <span className="font-bold text-gray-700 dark:text-gray-300">{d1Metrics.database.name}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Database Detail Breakdown & Info */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Database specifics */}
+                  <div className="p-6 bg-gray-50 dark:bg-gray-800/40 rounded-3xl border border-gray-100 dark:border-gray-700 space-y-4">
+                    <h3 className="text-sm font-black uppercase tracking-wider text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                      <span>🗄️</span> Rincian Database: {d1Metrics.database.name}
+                    </h3>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
+                        <span className="text-gray-500 font-medium">Rows Read (Database ini)</span>
+                        <span className="font-mono font-black text-gray-900 dark:text-white">{d1Metrics.database.rowsRead.toLocaleString('id-ID')} baris</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
+                        <span className="text-gray-500 font-medium">Rows Written (Database ini)</span>
+                        <span className="font-mono font-black text-gray-900 dark:text-white">{d1Metrics.database.rowsWritten.toLocaleString('id-ID')} baris</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
+                        <span className="text-gray-500 font-medium">Read Queries (Database ini)</span>
+                        <span className="font-mono font-black text-gray-900 dark:text-white">{d1Metrics.database.readQueries.toLocaleString('id-ID')} query</span>
+                      </div>
+                      <div className="flex justify-between py-2">
+                        <span className="text-gray-500 font-medium">Terakhir Diperbarui</span>
+                        <span className="font-mono font-bold text-gray-600 dark:text-gray-400">
+                          {d1Metrics.lastUpdated ? new Date(d1Metrics.lastUpdated).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'} WIB
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Architecture & Cost explanation */}
+                  <div className="p-6 bg-blue-50/50 dark:bg-blue-900/10 rounded-3xl border border-blue-100 dark:border-blue-900/30 space-y-3">
+                    <h3 className="text-sm font-black uppercase tracking-wider text-blue-800 dark:text-blue-300 flex items-center gap-2">
+                      <span>💡</span> Bebas Kuota D1 (0 Row Reads)
+                    </h3>
+                    <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed font-medium">
+                      Pemantauan ini memanggil <strong>Cloudflare GraphQL Analytics API</strong> langsung ke server Cloudflare (<code>api.cloudflare.com</code>), sehingga <strong>TIDAK MEMAKAN</strong> jatah baris baca database D1 sama sekali.
+                    </p>
+                    <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1.5 list-disc pl-4 font-medium">
+                      <li>Hasil di-cache di memori Worker selama 30 detik untuk mencegah spam request.</li>
+                      <li>Hanya akun Administrator yang memiliki akses ke endpoint monitoring ini.</li>
+                      <li>Metrik mencerminkan agregasi penggunaan sejak pukul 07:00 WIB hari ini.</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             )}

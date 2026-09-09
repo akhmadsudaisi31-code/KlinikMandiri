@@ -15,7 +15,10 @@
 			"binding": "LAB_RESULTS",
 			"bucket_name": "klinik-lab-results"
 		}
-	]
+	],
+	"vars": {
+		"CF_ACCOUNT_ID": "35cd387a4da0ee936d60d97ad49effd5"
+	}
 	// "compatibility_flags": [
 	//   "nodejs_compat"
 	// ],
