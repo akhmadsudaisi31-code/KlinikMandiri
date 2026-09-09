@@ -309,8 +309,8 @@ admin.post('/broadcast', async (c) => {
 
 // MONITORING KUOTA D1 RESMI DARI CLOUDFLARE GRAPHQL ANALYTICS
 admin.get('/d1-metrics', async (c) => {
-    const token = c.env.CF_API_TOKEN
-    const accountTag = c.env.CF_ACCOUNT_ID || '35cd387a4da0ee936d60d97ad49effd5'
+    const token = (c.env.CF_API_TOKEN || '').trim()
+    const accountTag = (c.env.CF_ACCOUNT_ID || '35cd387a4da0ee936d60d97ad49effd5').trim()
     const databaseId = '6ac0bc4c-50cc-4600-b230-ae967d238a5f'
 
     if (!token) {
@@ -358,6 +358,7 @@ admin.get('/d1-metrics', async (c) => {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json',
+                'User-Agent': 'KlinikMandiri-Worker/1.0',
             },
             body: JSON.stringify({
                 query,
@@ -370,8 +371,20 @@ admin.get('/d1-metrics', async (c) => {
         })
 
         const json: any = await res.json()
-        const accountSum = json?.data?.viewer?.accounts?.[0]?.accountTotal?.[0]?.sum
-        const dbSum = json?.data?.viewer?.accounts?.[0]?.dbSpecific?.[0]?.sum
+
+        if (!res.ok || (json?.errors && json.errors.length > 0)) {
+            console.error("Cloudflare GraphQL Error:", res.status, JSON.stringify(json))
+            return c.json({
+                configured: true,
+                status: 'danger',
+                error: 'Cloudflare GraphQL API error: ' + (json?.errors?.[0]?.message || `HTTP ${res.status}`),
+                detail: json
+            }, 502)
+        }
+
+        const accounts = json?.data?.viewer?.accounts?.[0]
+        const accountSum = accounts?.accountTotal?.[0]?.sum
+        const dbSum = accounts?.dbSpecific?.[0]?.sum
 
         const rowsRead = accountSum?.rowsRead || 0
         const rowsReadLimit = 5000000
