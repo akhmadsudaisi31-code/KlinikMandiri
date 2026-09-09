@@ -120,7 +120,20 @@ export async function reportError(
   context?: { clinicId?: string; userId?: string; userEmail?: string; metadata?: any }
 ): Promise<void> {
   const err = error instanceof Error ? error : new Error(String(error));
-  const key = `manual:${err.message}`;
+  const msg = err.message || '';
+
+  // Jangan laporkan error limit kuota / maintenance ke server agar tidak membebani D1
+  if (
+    msg.includes('429') || 
+    msg.includes('D1') || 
+    msg.includes('limit') || 
+    msg.includes('pemeliharaan') || 
+    msg.includes('sibuk')
+  ) {
+    return;
+  }
+
+  const key = `manual:${msg}`;
 
   if (isRateLimited(key)) return;
   markSent(key);

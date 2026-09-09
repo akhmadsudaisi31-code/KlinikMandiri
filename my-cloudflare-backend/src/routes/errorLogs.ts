@@ -20,8 +20,14 @@ errorLogs.post('/errors', async (c) => {
     const body = await c.req.json()
     const errMsg = body.errorMessage || ''
     
-    // Jangan catat error D1 limit ke database agar tidak membuang write rows
-    if (errMsg.includes("exceeded D1's free tier daily row read limit") || errMsg.includes("D1_ERROR")) {
+    // Jangan catat error D1 limit / 429 ke database agar tidak membuang write rows
+    if (
+      errMsg.includes("exceeded D1's free tier daily row read limit") || 
+      errMsg.includes("D1_ERROR") ||
+      errMsg.includes("429") ||
+      errMsg.includes("pemeliharaan") ||
+      errMsg.includes("sibuk")
+    ) {
       return c.json({ ok: true, skipped: true })
     }
 

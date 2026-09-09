@@ -112,10 +112,9 @@ medical.get('/patients', async (c) => {
   // Pasien lama (RM kecil, createdAt lebih awal) sekarang selalu dikembalikan.
   query += ' ORDER BY createdAt DESC'
 
-  if (pageSize > 0) {
-    const offset = (page - 1) * pageSize
-    query += ` LIMIT ${pageSize} OFFSET ${offset}`
-  }
+  const effectivePageSize = pageSize > 0 ? pageSize : (search || (startDate && endDate) ? 500 : 100)
+  const offset = (page - 1) * effectivePageSize
+  query += ` LIMIT ${effectivePageSize} OFFSET ${offset}`
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   return c.json(results)
@@ -501,8 +500,8 @@ medical.get('/examinations', async (c) => {
     query += ` AND (examinations.extendedData_json LIKE '%"category":"Persalinan"%' OR examinations.extendedData_json LIKE '%"isPersalinan":true%')`
   }
   
-  // ORDER BY menggunakan kolom yang sudah ada index-nya
-  query += ' ORDER BY examinations.createdAt DESC'
+  // ORDER BY menggunakan kolom yang sudah ada index-nya + batas kuota
+  query += ' ORDER BY examinations.createdAt DESC LIMIT 1000'
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   
