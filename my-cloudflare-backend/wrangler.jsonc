@@ -7,17 +7,17 @@
 		{
 			"binding": "DB",
 			"database_name": "klinik-db",
-			"database_id": "6ac0bc4c-50cc-4600-b230-ae967d238a5f"
+			"database_id": "dfdbafaf-ce9b-474d-9083-6e7c92145030"
 		}
 	],
-	"r2_buckets": [
-		{
-			"binding": "LAB_RESULTS",
-			"bucket_name": "klinik-lab-results"
-		}
-	],
+	// "r2_buckets": [
+	// 	{
+	// 		"binding": "LAB_RESULTS",
+	// 		"bucket_name": "klinik-lab-results"
+	// 	}
+	// ],
 	"vars": {
-		"CF_ACCOUNT_ID": "35cd387a4da0ee936d60d97ad49effd5"
+		"CF_ACCOUNT_ID": "a9adbd347b2c7752375c2893dc99755f"
 	}
 	// "compatibility_flags": [
 	//   "nodejs_compat"

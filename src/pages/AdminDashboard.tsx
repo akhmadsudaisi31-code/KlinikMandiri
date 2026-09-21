@@ -479,12 +479,6 @@ function AdminDashboard() {
               Add-ons
           </button>
           <button 
-            onClick={() => setActiveTab('roadmap')}
-            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'roadmap' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-          >
-              🚀 Roadmap
-          </button>
-          <button 
             onClick={() => setActiveTab('broadcast')}
             className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'broadcast' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
           >
@@ -677,67 +671,6 @@ function AdminDashboard() {
                     ))}
                 </div>
                 <p className="text-xs text-gray-400 italic font-medium">* Untuk saat ini, penambahan paket baru dilakukan via migrasi database SQL.</p>
-            </div>
-        ) : activeTab === 'roadmap' ? (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
-                <div className="bg-indigo-600 p-8 rounded-3xl text-white relative overflow-hidden">
-                    <div className="relative z-10">
-                        <h2 className="text-2xl font-black uppercase tracking-tight">CMS Roadmap & Masukan</h2>
-                        <p className="text-indigo-100 text-sm font-medium mt-1">Ide pengembangan CMS pusat untuk optimalisasi manajemen client SaaS</p>
-                    </div>
-                    <svg className="absolute -right-10 -bottom-10 w-64 h-64 text-indigo-500/20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Prioritas Pengembangan</h3>
-                        {[
-                            { title: 'Feature Tier Presets', desc: 'Bundling fitur ke dalam kategori Basic, Standard, & Professional untuk kemudahan aktivasi masal.', status: 'PLANNING', icon: '📦' },
-                            { title: 'Impersonation Mode', desc: 'Sudah diimplementasikan—Memungkinkan admin login sebagai client untuk membantu troubleshooting.', status: 'DONE', icon: '👤' },
-                            { title: 'Usage Analytics per Client', desc: 'Melihat grafik penggunaan fitur (misal: jumlah pasien, resep) untuk dasar penentuan biaya.', status: 'IDEA', icon: '📊' },
-                            { title: 'Client Quota System', desc: 'Membatasi jumlah record (pasien/user) sesuai paket yang dibeli.', status: 'PLANNING', icon: '🔒' },
-                        ].map((item, i) => (
-                            <div key={i} className="flex gap-4 p-5 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 hover:border-indigo-300 transition-all">
-                                <span className="text-2xl">{item.icon}</span>
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <h4 className="text-sm font-black uppercase">{item.title}</h4>
-                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${item.status === 'DONE' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>{item.status}</span>
-                                    </div>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium leading-relaxed">{item.desc}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="space-y-4">
-                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Saran Optimasi Bisnis</h3>
-                        <div className="p-6 bg-emerald-50 dark:bg-emerald-900/10 rounded-3xl border border-emerald-100 dark:border-emerald-900/30 space-y-4">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">💡</div>
-                                <h4 className="text-sm font-black text-emerald-800 dark:text-emerald-400 uppercase">Tips Up-selling Fitur</h4>
-                            </div>
-                            <ul className="space-y-3">
-                                {[
-                                    'Berikan masa trial 7 hari untuk fitur Premium (misal: Poli Mata/Gigi).',
-                                    'Buat fitur "Laporan Lanjutan" sebagai add-on berbayar di luar paket utama.',
-                                    'Implementasi "White Labeling" (ganti logo/domain) untuk klien institusi besar.',
-                                    'Tawarkan integrasi API BPJS/SatuSehat sebagai paket Enterprise.',
-                                ].map((tip, i) => (
-                                    <li key={i} className="flex gap-3 text-[11px] text-emerald-700 dark:text-emerald-300 font-bold leading-relaxed">
-                                        <span className="text-emerald-500 mt-0.5">✔</span>
-                                        {tip}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="p-6 bg-white dark:bg-gray-800 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center text-center py-10">
-                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Ingin menambah fitur lain?</p>
-                            <p className="text-[10px] text-gray-400 italic mb-4">"Kembangkan CMS ini secara bertahap sesuai feedback nyata dari dokter/bidan di lapangan."</p>
-                        </div>
-                    </div>
-                </div>
             </div>
         ) : activeTab === 'broadcast' ? (
             <div className="space-y-8 py-10 animate-in fade-in slide-in-from-top-4">
@@ -1469,77 +1402,6 @@ function AdminDashboard() {
         </div>
       )}
 
-      {/* Area sensitif */}
-      <div className="mt-12 bg-red-50 dark:bg-red-900/10 border-2 border-red-200 dark:border-red-900/30 rounded-3xl p-8 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-            <div>
-                <h3 className="text-xl font-black text-red-600 dark:text-red-500 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    Area Sensitif
-                </h3>
-                <p className="text-sm text-red-800 dark:text-red-300 mt-2 max-w-2xl font-medium">Aksi ini akan MENGHAPUS SEMUA DATA transaksi (pasien, obat, rekam medis) dan semua akun klinik kecuali akun Administrator. Gunakan hanya jika Anda ingin mengosongkan aplikasi secara total untuk reset produksi.</p>
-            </div>
-            <button
-                onClick={() => setIsResetModalOpen(true)}
-                className="shrink-0 bg-red-600 hover:bg-red-700 text-white font-black px-6 py-3 rounded-2xl shadow-lg shadow-red-500/30 transition-all transform hover:scale-105"
-            >
-                Kosongkan Database
-            </button>
-        </div>
-      </div>
-
-      {/* Modal reset database */}
-      {isResetModalOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-red-900/40 backdrop-blur-md transition-all duration-300">
-          <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all border-2 border-red-100 dark:border-red-900">
-            <div className="p-8 text-center">
-                <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-red-100 dark:bg-red-900/40 mb-6">
-                  <svg className="h-10 w-10 text-red-600 dark:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tight mb-2">Peringatan Keras!</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mb-6">
-                    Anda akan menghapus seluruh data pada server ini secara permanen. Aksi ini tidak dapat dibatalkan.
-                </p>
-                
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-6">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 text-left">Ketik <strong className="text-red-600 dark:text-red-400">RESET</strong> untuk mengonfirmasi:</p>
-                    <input 
-                      type="text" 
-                      value={resetConfirmation}
-                      onChange={(e) => setResetConfirmation(e.target.value)}
-                      placeholder="RESET"
-                      className="w-full text-center text-xl tracking-widest font-black px-4 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl dark:bg-gray-900 dark:text-white focus:outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/20 transition-all uppercase"
-                    />
-                </div>
-
-                <div className="flex flex-col-reverse sm:flex-row gap-3">
-                  <button 
-                    onClick={() => { setIsResetModalOpen(false); setResetConfirmation(''); }}
-                    disabled={isResetting}
-                    className="w-full px-6 py-3.5 text-sm font-bold text-gray-700 dark:text-gray-300 bg-white dark:bg-dark-surface border-2 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-all"
-                  >
-                    Batal
-                  </button>
-                  <button 
-                    onClick={handleResetDatabase}
-                    disabled={resetConfirmation !== 'RESET' || isResetting}
-                    className="w-full px-6 py-3.5 text-sm font-black text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:hover:scale-100 rounded-xl shadow-lg transition-all transform hover:scale-105 flex justify-center items-center"
-                  >
-                    {isResetting ? (
-                        <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    ) : (
-                        "HANCURKAN DATA"
-                    )}
-                  </button>
-                </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

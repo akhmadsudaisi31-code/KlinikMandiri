@@ -54,8 +54,10 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# dotenv environment variables fi*.local
 .env
+backup_migrasi_klinik_db.sql
+*.sql
 .env.test
 .env.production
 
