@@ -317,14 +317,43 @@ medical.put('/patients/:id', async (c) => {
 medical.delete('/patients/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
+  const user = c.get('jwtPayload') || {}
 
   const patient: any = await c.env.DB.prepare(
-    'SELECT id FROM patients WHERE id = ? AND clinicId = ?'
+    'SELECT id, rm, name, address, createdAt FROM patients WHERE id = ? AND clinicId = ?'
   ).bind(id, clinicId).first()
 
   if (!patient) return c.json({ error: 'Data pasien tidak ditemukan atau sudah dihapus.' }, 404)
 
   await c.env.DB.batch(getPatientDeleteStatements(c.env.DB, id, clinicId))
+
+  // Catat jejak audit penghapusan secara permanen
+  try {
+    const auditId = crypto.randomUUID()
+    const nowIso = new Date().toISOString()
+    const metadataStr = JSON.stringify({
+      action: 'DELETE_PATIENT',
+      patientId: id,
+      rm: patient.rm,
+      name: patient.name,
+      address: patient.address,
+      patientCreatedAt: patient.createdAt
+    })
+    await c.env.DB.prepare(
+      `INSERT INTO error_logs (id, clinicId, userId, userEmail, errorMessage, metadata, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      auditId,
+      clinicId,
+      user.uid || null,
+      user.email || 'operator',
+      `[AUDIT] Pasien Dihapus: ${patient.name} (${patient.rm})`,
+      metadataStr,
+      nowIso
+    ).run()
+  } catch (auditErr) {
+    console.error('Audit delete log error:', auditErr)
+  }
 
   // Kurangi counter pasien di clinic_settings
   try {

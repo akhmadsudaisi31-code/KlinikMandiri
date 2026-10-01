@@ -74,11 +74,9 @@ app.onError((err: any, c) => {
   }
 
   const status = err.status || 500;
-  // Jangan pernah ekspos stack trace — gunakan env ENVIRONMENT terpisah untuk dev mode
-  const isDev = !c.env.JWT_SECRET; // JWT_SECRET selalu ada di production Cloudflare Workers
   return c.json({ 
       error: 'Terjadi kesalahan pada server.',
-      ...(isDev && { detail: err.message, stack: err.stack }),
+      detail: err.message || String(err),
       status
   }, status);
 });

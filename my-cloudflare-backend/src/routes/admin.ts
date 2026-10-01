@@ -431,4 +431,58 @@ admin.get('/d1-metrics', async (c) => {
     }
 })
 
+// --- RM INTEGRITY AUDIT SCANNER ---
+admin.get('/rm-audit', async (c) => {
+    const clinicId = c.req.query('clinicId') || 'e516fd31-eec0-4a1c-bf58-7575e5449d56'
+    
+    // Ambil semua nomor RM berformat RM-xxxx untuk klinik ini
+    const query = `
+      SELECT rm, name, address, createdAt 
+      FROM patients 
+      WHERE clinicId = ? AND rm LIKE 'RM-%'
+      ORDER BY CAST(SUBSTR(rm, 4) AS INTEGER) ASC
+    `
+    const { results } = await c.env.DB.prepare(query).bind(clinicId).all()
+    const patients = (results || []) as any[]
+
+    if (patients.length === 0) {
+      return c.json({ totalPatients: 0, minRm: 0, maxRm: 0, totalGaps: 0, gaps: [] })
+    }
+
+    const rmMap = new Map<number, any>()
+    let minNum = Infinity
+    let maxNum = -Infinity
+
+    for (const p of patients) {
+      const num = parseInt(p.rm.replace('RM-', ''), 10)
+      if (!isNaN(num)) {
+        rmMap.set(num, p)
+        if (num < minNum) minNum = num
+        if (num > maxNum) maxNum = num
+      }
+    }
+
+    const gaps: any[] = []
+    for (let i = minNum; i <= maxNum; i++) {
+      if (!rmMap.has(i)) {
+        const prevPatient = rmMap.get(i - 1)
+        const nextPatient = rmMap.get(i + 1)
+        gaps.push({
+          missingRm: `RM-${String(i).padStart(4, '0')}`,
+          missingNumber: i,
+          prevPatient: prevPatient ? { rm: prevPatient.rm, name: prevPatient.name, createdAt: prevPatient.createdAt } : null,
+          nextPatient: nextPatient ? { rm: nextPatient.rm, name: nextPatient.name, createdAt: nextPatient.createdAt } : null
+        })
+      }
+    }
+
+    return c.json({
+      totalPatients: patients.length,
+      minRm: `RM-${String(minNum).padStart(4, '0')}`,
+      maxRm: `RM-${String(maxNum).padStart(4, '0')}`,
+      totalGaps: gaps.length,
+      gaps
+    })
+})
+
 export default admin
