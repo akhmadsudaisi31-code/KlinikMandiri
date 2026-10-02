@@ -1245,6 +1245,7 @@ function AdminDashboard() {
                         const meta = log.parsedMetadata || {};
                         const isDelete = meta.action === 'DELETE_PATIENT' || log.errorMessage?.includes('Dihapus');
                         const isUpdate = meta.action === 'UPDATE_PATIENT' || log.errorMessage?.includes('Diperbarui');
+                        const isRestore = meta.action === 'RESTORE_PATIENT' || log.errorMessage?.includes('Dipulihkan');
 
                         return (
                           <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
@@ -1252,7 +1253,11 @@ function AdminDashboard() {
                               {new Date(log.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </td>
                             <td className="px-4 py-3">
-                              {isDelete ? (
+                              {isRestore ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                  DIPULIHKAN
+                                </span>
+                              ) : isDelete ? (
                                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
                                   HAPUS PASIEN
                                 </span>
@@ -1278,7 +1283,11 @@ function AdminDashboard() {
                               {log.userEmail || 'Operator'}
                             </td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                              {isDelete ? (
+                              {isRestore ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                                  Data pasien telah dipulihkan kembali ke daftar aktif klinik.
+                                </span>
+                              ) : isDelete ? (
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-red-600 dark:text-red-400">
                                     Alamat: {meta.address || '-'} (Data pasien telah dihapus dari sistem)
