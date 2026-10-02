@@ -25,8 +25,7 @@
 	// "vars": {
 	//   "MY_VAR": "my-variable"
 	// },
-	// "kv_namespaces": [
-	//   {
+	// "kv_namespaces": [ 
 	//     "binding": "MY_KV_NAMESPACE",
 	//     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 	//   }

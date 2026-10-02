@@ -9,6 +9,7 @@ import { getExaminationQueueLabel, getExaminationUnitLabel } from '../utils/clin
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 import { subscribeDataSync } from '../utils/dataSync';
 import { formatToWIB } from '../utils/date';
+import { ConfirmationModal } from '../components/ConfirmationModal';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -76,16 +77,35 @@ function PatientList() {
     return unsubscribe;
   }, [fetchPatients]);
 
-  const handleDelete = async (patientId: string, patientName: string) => {
-    if (window.confirm(`Apakah Anda yakin ingin menghapus data pasien ${patientName}?`)) {
-      try {
-        await api.delete(`/patients/${patientId}`);
-        setPatients(prev => prev.filter(p => p.id !== patientId));
-        toast.success(`Data pasien ${patientName} berhasil dihapus.`);
-      } catch (error) {
-        console.error("Error deleting patient: ", error);
-        toast.error("Gagal menghapus data pasien.");
-      }
+  // State Modal Konfirmasi Hapus
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; patientId: string; patientName: string; isLoading: boolean }>({
+    isOpen: false,
+    patientId: '',
+    patientName: '',
+    isLoading: false,
+  });
+
+  const handleDelete = (patientId: string, patientName: string) => {
+    setDeleteModal({
+      isOpen: true,
+      patientId,
+      patientName,
+      isLoading: false,
+    });
+  };
+
+  const confirmDelete = async () => {
+    const { patientId, patientName } = deleteModal;
+    setDeleteModal(prev => ({ ...prev, isLoading: true }));
+    try {
+      await api.delete(`/patients/${patientId}`);
+      setPatients(prev => prev.filter(p => p.id !== patientId));
+      toast.success(`Data pasien ${patientName} berhasil dihapus.`);
+      setDeleteModal({ isOpen: false, patientId: '', patientName: '', isLoading: false });
+    } catch (error) {
+      console.error("Error deleting patient: ", error);
+      toast.error("Gagal menghapus data pasien.");
+      setDeleteModal(prev => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -446,6 +466,23 @@ function PatientList() {
           </div>
         )}
       </div>
+
+      {/* Modal Konfirmasi Hapus Pasien */}
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => {
+          if (!deleteModal.isLoading) {
+            setDeleteModal({ isOpen: false, patientId: '', patientName: '', isLoading: false });
+          }
+        }}
+        onConfirm={confirmDelete}
+        title="Konfirmasi Hapus Pasien"
+        message={`Apakah Anda yakin ingin menghapus data pasien "${deleteModal.patientName}"? Tindakan ini akan menghapus riwayat pendaftaran terkait dan akan dicatat secara permanen di audit log klinik.`}
+        confirmLabel="Ya, Hapus Pasien"
+        cancelLabel="Batal"
+        variant="danger"
+        isLoading={deleteModal.isLoading}
+      />
     </div>
   );
 }

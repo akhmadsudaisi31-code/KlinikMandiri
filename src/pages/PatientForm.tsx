@@ -9,6 +9,7 @@ import { PatientFormData, GENDERS, CATEGORIES, POLI_OPTIONS } from '../types';
 import toast from 'react-hot-toast';
 import { getExaminationUnitLabel, getExaminationQueueLabel, isDentalClinicType } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
+import { ConfirmationModal } from '../components/ConfirmationModal';
 
 const schema = z.object({
   manualRm: z.string().optional(),
@@ -162,7 +163,16 @@ function PatientForm() {
     return { ageYears: finalYears, ageMonths: finalMonths, ageDisplay: ageDisplay.trim() };
   };
 
+  const [showEditConfirmModal, setShowEditConfirmModal] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState<ExtendedPatientFormData | null>(null);
+
   const onSubmit: SubmitHandler<ExtendedPatientFormData> = async (data) => {
+    if (isEditMode && !showEditConfirmModal) {
+      setPendingFormData(data);
+      setShowEditConfirmModal(true);
+      return;
+    }
+
     setIsLoading(true);
     if (!user) {
       toast.error('Anda harus login.');
@@ -614,6 +624,29 @@ function PatientForm() {
 
         </form>
       </div>
+
+      {/* Modal Konfirmasi Simpan Perubahan Edit Pasien */}
+      <ConfirmationModal
+        isOpen={showEditConfirmModal}
+        onClose={() => {
+          if (!isLoading) {
+            setShowEditConfirmModal(false);
+            setPendingFormData(null);
+          }
+        }}
+        onConfirm={async () => {
+          if (pendingFormData) {
+            setShowEditConfirmModal(false);
+            await onSubmit(pendingFormData);
+          }
+        }}
+        title="Konfirmasi Perubahan Data Pasien"
+        message="Apakah Anda yakin data perubahan pasien ini sudah benar? Perubahan ini akan langsung diperbarui di rekam medis dan dicatat dalam audit log sistem klinik."
+        confirmLabel="Ya, Simpan Perubahan"
+        cancelLabel="Cek Kembali"
+        variant="warning"
+        isLoading={isLoading}
+      />
     </div>
   );
 }

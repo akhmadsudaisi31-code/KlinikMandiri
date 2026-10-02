@@ -282,7 +282,18 @@ medical.put('/patients/:id', async (c) => {
   const clinicId = getClinicId(c)
   const id = c.req.param('id')
   const body = await c.req.json()
+  const user = c.get('jwtPayload') || {}
   
+  // Ambil data pasien saat ini untuk perbandingan audit log jika ada perubahan identitas
+  let existingPatient: any = null
+  if (body.name !== undefined || body.address !== undefined || body.dob !== undefined) {
+    try {
+      existingPatient = await c.env.DB.prepare(
+        'SELECT rm, name, address, dob FROM patients WHERE id = ? AND clinicId = ?'
+      ).bind(id, clinicId).first()
+    } catch (e) {}
+  }
+
   const updates: string[] = []
   const values: any[] = []
 
@@ -308,6 +319,41 @@ medical.put('/patients/:id', async (c) => {
     values.push(id, clinicId)
 
     await c.env.DB.prepare(query).bind(...values).run()
+
+    // Catat log audit jika ada perubahan data penting
+    if (existingPatient) {
+      const changes: Record<string, { before: any; after: any }> = {}
+      if (body.name !== undefined && body.name !== existingPatient.name) changes.name = { before: existingPatient.name, after: body.name }
+      if (body.address !== undefined && body.address !== existingPatient.address) changes.address = { before: existingPatient.address, after: body.address }
+
+      if (Object.keys(changes).length > 0) {
+        try {
+          const auditId = crypto.randomUUID()
+          const nowIso = new Date().toISOString()
+          const metadataStr = JSON.stringify({
+            action: 'UPDATE_PATIENT',
+            patientId: id,
+            rm: existingPatient.rm,
+            patientName: body.name || existingPatient.name,
+            changes
+          })
+          await c.env.DB.prepare(
+            `INSERT INTO error_logs (id, clinicId, userId, userEmail, errorMessage, metadata, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            auditId,
+            clinicId,
+            user.uid || null,
+            user.email || 'operator',
+            `[AUDIT] Pasien Diperbarui: ${existingPatient.name} (${existingPatient.rm})`,
+            metadataStr,
+            nowIso
+          ).run()
+        } catch (auditErr) {
+          console.error('Audit update log error:', auditErr)
+        }
+      }
+    }
   }
 
   invalidateEdgeCache(clinicId)
