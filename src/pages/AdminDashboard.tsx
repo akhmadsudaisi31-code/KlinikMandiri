@@ -60,6 +60,18 @@ function AdminDashboard() {
     }
   };
 
+  const handleRestorePatient = async (logId: string, patientName: string) => {
+    if (!window.confirm(`Pulihkan kembali data pasien "${patientName}"?`)) return;
+    try {
+      const res: any = await api.post(`/admin/patient-mutations/${logId}/restore`, {});
+      toast.success(res?.message || 'Data pasien berhasil dipulihkan!');
+      fetchMutationLogs(mutationPagination.page);
+    } catch (e: any) {
+      toast.error('Gagal memulihkan pasien: ' + (e?.response?.data?.error || e?.message || 'Terjadi kesalahan'));
+    }
+  };
+
+
   // RM Audit State (Opsional Deep Scan)
   const [rmAudit, setRmAudit] = useState<any>(null);
   const [rmAuditLoading, setRmAuditLoading] = useState(false);
@@ -1267,9 +1279,20 @@ function AdminDashboard() {
                             </td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                               {isDelete ? (
-                                <span className="text-red-600 dark:text-red-400">
-                                  Alamat: {meta.address || '-'} (Data pasien telah dihapus dari sistem)
-                                </span>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-red-600 dark:text-red-400">
+                                    Alamat: {meta.address || '-'} (Data pasien telah dihapus dari sistem)
+                                  </span>
+                                  <button
+                                    onClick={() => handleRestorePatient(log.id, meta.name || meta.patientName || 'Pasien')}
+                                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    Pulihkan Pasien
+                                  </button>
+                                </div>
                               ) : meta.changes ? (
                                 <div className="space-y-1">
                                   {Object.entries(meta.changes).map(([field, diff]: [string, any]) => (

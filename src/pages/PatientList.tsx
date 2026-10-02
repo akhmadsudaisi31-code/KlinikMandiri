@@ -85,6 +85,34 @@ function PatientList() {
     isLoading: false,
   });
 
+  // State Tong Sampah (Data Pasien Terhapus)
+  const [showTrashModal, setShowTrashModal] = useState(false);
+  const [trashList, setTrashList] = useState<Patient[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+
+  const fetchTrashList = async () => {
+    setTrashLoading(true);
+    try {
+      const data: any = await api.get('/patients/trash');
+      setTrashList(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      toast.error('Gagal memuat data terhapus: ' + (e?.message || 'Error'));
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const handleRestoreFromTrash = async (patientId: string, patientName: string) => {
+    try {
+      await api.post(`/patients/${patientId}/restore`, {});
+      toast.success(`Pasien ${patientName} berhasil dipulihkan!`);
+      setTrashList(prev => prev.filter(p => p.id !== patientId));
+      fetchPatients();
+    } catch (e: any) {
+      toast.error('Gagal memulihkan pasien: ' + (e?.message || 'Error'));
+    }
+  };
+
   const handleDelete = (patientId: string, patientName: string) => {
     setDeleteModal({
       isOpen: true,
@@ -100,7 +128,7 @@ function PatientList() {
     try {
       await api.delete(`/patients/${patientId}`);
       setPatients(prev => prev.filter(p => p.id !== patientId));
-      toast.success(`Data pasien ${patientName} berhasil dihapus.`);
+      toast.success(`Data pasien ${patientName} berhasil dipindahkan ke riwayat terhapus.`);
       setDeleteModal({ isOpen: false, patientId: '', patientName: '', isLoading: false });
     } catch (error) {
       console.error("Error deleting patient: ", error);
@@ -193,15 +221,29 @@ function PatientList() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Pendaftaran Pasien</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kelola data pasien dan riwayat kunjungan klinik.</p>
         </div>
-        <Link
-          to="/pendaftaran/baru"
-          className="w-full sm:w-auto inline-flex justify-center items-center px-5 py-3 border border-transparent rounded-xl shadow-lg shadow-primary-200 dark:shadow-none text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all"
-        >
-          <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-          </svg>
-          Pasien Baru
-        </Link>
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <button
+            onClick={() => {
+              setShowTrashModal(true);
+              fetchTrashList();
+            }}
+            className="inline-flex justify-center items-center px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all shadow-sm"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="mr-1.5 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Data Terhapus
+          </button>
+          <Link
+            to="/pendaftaran/baru"
+            className="w-full sm:w-auto inline-flex justify-center items-center px-5 py-3 border border-transparent rounded-xl shadow-lg shadow-primary-200 dark:shadow-none text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all"
+          >
+            <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+            Pasien Baru
+          </Link>
+        </div>
       </div>
 
       {/* Multi-Filter Section */}
@@ -477,12 +519,92 @@ function PatientList() {
         }}
         onConfirm={confirmDelete}
         title="Hapus Data Pasien?"
-        message={`Yakin ingin menghapus pasien "${deleteModal.patientName}"? Riwayat pendaftaran dan pemeriksaan pasien ini juga akan terhapus. Tindakan ini tidak dapat dibatalkan.`}
+        message={`Yakin ingin menghapus pasien "${deleteModal.patientName}"? Pasien akan dipindahkan ke riwayat data terhapus dan dapat dipulihkan sewaktu-waktu.`}
         confirmLabel="Ya, Hapus Pasien"
         cancelLabel="Batal"
         variant="danger"
         isLoading={deleteModal.isLoading}
       />
+
+      {/* Modal Tong Sampah (Data Terhapus) */}
+      {showTrashModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-100 dark:border-dark-border">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Riwayat Pasien Terhapus
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Daftar pasien yang pernah dihapus. Anda dapat memulihkannya kembali kapan saja.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowTrashModal(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-lg"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              {trashLoading ? (
+                <div className="py-12 text-center text-sm text-gray-400 animate-pulse">
+                  Memuat data pasien terhapus...
+                </div>
+              ) : trashList.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-sm font-medium text-gray-400">Tidak ada data pasien yang terhapus.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {trashList.map((p: any) => (
+                    <div key={p.id} className="py-3.5 flex items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-900 dark:text-white text-sm">
+                            {p.name}
+                          </span>
+                          <span className="font-mono text-xs text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 rounded">
+                            {p.rm || '-'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {p.address ? `Alamat: ${p.address}` : 'Tidak ada alamat'} 
+                          {p.deletedAt && ` • Dihapus: ${formatToWIB(p.deletedAt)}`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleRestoreFromTrash(p.id, p.name)}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Pulihkan Pasien
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800/50 flex justify-end">
+              <button
+                onClick={() => setShowTrashModal(false)}
+                className="px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

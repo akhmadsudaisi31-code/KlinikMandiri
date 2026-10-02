@@ -483,6 +483,107 @@ admin.get('/patient-mutation-logs', async (c) => {
     })
 })
 
+// Super Admin Restore Pasien dari Log Mutasi
+admin.post('/patient-mutations/:logId/restore', async (c) => {
+    const logId = c.req.param('logId')
+    const user = c.get('jwtPayload') || {}
+
+    const logRow: any = await c.env.DB.prepare(
+      'SELECT id, clinicId, metadata FROM error_logs WHERE id = ?'
+    ).bind(logId).first()
+
+    if (!logRow || !logRow.metadata) {
+      return c.json({ error: 'Catatan log tidak ditemukan atau tidak memiliki data cadangan.' }, 404)
+    }
+
+    let meta: any = {}
+    try {
+      meta = JSON.parse(logRow.metadata)
+    } catch (e) {}
+
+    const patientId = meta.patientId
+    const clinicId = logRow.clinicId
+
+    if (!patientId || !clinicId) {
+      return c.json({ error: 'Metadata log tidak lengkap.' }, 400)
+    }
+
+    const nowIso = new Date().toISOString()
+
+    // 1. Cek apakah ada record di tabel patients
+    const existingPatient: any = await c.env.DB.prepare(
+      'SELECT id, rm, name FROM patients WHERE id = ? AND clinicId = ?'
+    ).bind(patientId, clinicId).first()
+
+    let restoredName = meta.name || meta.patientName || 'Pasien'
+    let restoredRm = meta.rm || '-'
+
+    if (existingPatient) {
+      restoredName = existingPatient.name
+      restoredRm = existingPatient.rm
+      await c.env.DB.prepare(
+        'UPDATE patients SET deletedAt = NULL WHERE id = ? AND clinicId = ?'
+      ).bind(patientId, clinicId).run()
+    } else {
+      // Pulihkan dari snapshot
+      const snap = meta.snapshot || meta
+      await c.env.DB.prepare(
+        `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, dob, ageYears, ageMonths, ageDisplay, poli, allergies, keluhan, createdAt, updatedAt, deletedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+      ).bind(
+        patientId,
+        clinicId,
+        restoredRm,
+        restoredName,
+        snap.namaSuami || null,
+        snap.gender || null,
+        snap.category || 'Umum',
+        snap.address || null,
+        snap.dob || null,
+        snap.ageYears || null,
+        snap.ageMonths || null,
+        snap.ageDisplay || null,
+        snap.poli || 'Pendaftaran',
+        snap.allergies || null,
+        snap.keluhan || null,
+        snap.createdAt || nowIso,
+        nowIso
+      ).run()
+    }
+
+    // Catat log pemulihan
+    try {
+      const auditId = crypto.randomUUID()
+      const metadataStr = JSON.stringify({
+        action: 'RESTORE_PATIENT',
+        patientId,
+        rm: restoredRm,
+        name: restoredName,
+        restoredFromLogId: logId,
+        restoredAt: nowIso
+      })
+      await c.env.DB.prepare(
+        `INSERT INTO error_logs (id, clinicId, userId, userEmail, errorMessage, metadata, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        auditId,
+        clinicId,
+        user.uid || null,
+        user.email || 'superadmin',
+        `[AUDIT] Pasien Dipulihkan: ${restoredName} (${restoredRm})`,
+        metadataStr,
+        nowIso
+      ).run()
+    } catch (e) {}
+
+    // Tambah kembali counter pasien di clinic_settings
+    try {
+      await c.env.DB.prepare('UPDATE clinic_settings SET totalPatients = COALESCE(totalPatients, 0) + 1 WHERE clinicId = ?').bind(clinicId).run()
+    } catch (e) {}
+
+    return c.json({ success: true, message: `Pasien ${restoredName} (${restoredRm}) berhasil dipulihkan.` })
+})
+
 // --- RM INTEGRITY AUDIT SCANNER ---
 admin.get('/rm-audit', async (c) => {
     const clinicId = c.req.query('clinicId') || 'e516fd31-eec0-4a1c-bf58-7575e5449d56'

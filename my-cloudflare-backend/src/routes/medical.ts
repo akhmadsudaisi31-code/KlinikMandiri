@@ -70,7 +70,7 @@ medical.get('/patients', async (c) => {
   const pageSize = parseInt(c.req.query('pageSize') || '0') // 0 = no pagination (ambil semua)
   const activeDate = c.req.query('activeDate') // Untuk ExaminationList (Antrean / Riwayat)
 
-  let query = 'SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt FROM patients WHERE clinicId = ?'
+  let query = "SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt FROM patients WHERE clinicId = ? AND (deletedAt IS NULL OR deletedAt = '')"
   const params: any[] = [clinicId]
 
   if (startDate && endDate) {
@@ -96,12 +96,12 @@ medical.get('/patients', async (c) => {
     const unionQuery = `
       SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt
       FROM patients 
-      WHERE clinicId = ? AND poli = 'Pemeriksaan'
+      WHERE clinicId = ? AND (deletedAt IS NULL OR deletedAt = '') AND poli = 'Pemeriksaan'
       UNION
       SELECT p.id, p.rm, p.name, p.namaSuami, p.gender, p.category, p.address, p.occupation, p.dob, p.ageDisplay, p.nik, p.poli, p.allergies, p.keluhan, p.createdAt, p.updatedAt
       FROM examinations e
       JOIN patients p ON e.patientId = p.id AND p.clinicId = e.clinicId
-      WHERE e.clinicId = ? AND e.createdAt >= ? AND e.createdAt <= ?
+      WHERE e.clinicId = ? AND (p.deletedAt IS NULL OR p.deletedAt = '') AND e.createdAt >= ? AND e.createdAt <= ?
       ORDER BY createdAt DESC
     `
     const { results } = await c.env.DB.prepare(unionQuery).bind(clinicId, clinicId, startIso, endIso).all()
@@ -118,6 +118,18 @@ medical.get('/patients', async (c) => {
   
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
   return c.json(results)
+})
+
+medical.get('/patients/trash', async (c) => {
+  const clinicId = getClinicId(c)
+  const query = `
+    SELECT id, rm, name, namaSuami, gender, category, address, occupation, dob, ageDisplay, nik, poli, allergies, keluhan, createdAt, updatedAt, deletedAt
+    FROM patients
+    WHERE clinicId = ? AND deletedAt IS NOT NULL AND deletedAt != ''
+    ORDER BY deletedAt DESC LIMIT 100
+  `
+  const { results } = await c.env.DB.prepare(query).bind(clinicId).all()
+  return c.json(results || [])
 })
 
 medical.get('/patients/count', async (c) => {
@@ -365,25 +377,31 @@ medical.delete('/patients/:id', async (c) => {
   const id = c.req.param('id')
   const user = c.get('jwtPayload') || {}
 
+  // Ambil snapshot lengkap pasien sebelum ditandai terhapus (1 baris saja, hemat kuota)
   const patient: any = await c.env.DB.prepare(
-    'SELECT id, rm, name, address, createdAt FROM patients WHERE id = ? AND clinicId = ?'
+    'SELECT * FROM patients WHERE id = ? AND clinicId = ?'
   ).bind(id, clinicId).first()
 
   if (!patient) return c.json({ error: 'Data pasien tidak ditemukan atau sudah dihapus.' }, 404)
 
-  await c.env.DB.batch(getPatientDeleteStatements(c.env.DB, id, clinicId))
+  const nowIso = new Date().toISOString()
 
-  // Catat jejak audit penghapusan secara permanen
+  // SOFT DELETE: Tandai deletedAt pada pasien tanpa memusnahkan rekam medis
+  await c.env.DB.prepare(
+    'UPDATE patients SET deletedAt = ? WHERE id = ? AND clinicId = ?'
+  ).bind(nowIso, id, clinicId).run()
+
+  // Simpan snapshot lengkap pasien ke audit log agar bisa dipulihkan kapan saja
   try {
     const auditId = crypto.randomUUID()
-    const nowIso = new Date().toISOString()
     const metadataStr = JSON.stringify({
       action: 'DELETE_PATIENT',
       patientId: id,
       rm: patient.rm,
       name: patient.name,
       address: patient.address,
-      patientCreatedAt: patient.createdAt
+      snapshot: patient,
+      deletedAt: nowIso
     })
     await c.env.DB.prepare(
       `INSERT INTO error_logs (id, clinicId, userId, userEmail, errorMessage, metadata, createdAt)
@@ -407,7 +425,114 @@ medical.delete('/patients/:id', async (c) => {
   } catch (e) {}
 
   invalidateEdgeCache(clinicId)
-  return c.json({ success: true })
+  return c.json({ success: true, message: 'Data pasien telah dipindahkan ke riwayat terhapus.' })
+})
+
+// RESTORE PASIEN (DARI SOFT DELETE ATAU LOG SNAPSHOT)
+medical.post('/patients/:id/restore', async (c) => {
+  const clinicId = getClinicId(c)
+  const id = c.req.param('id')
+  const user = c.get('jwtPayload') || {}
+
+  // 1. Cek apakah ada record di tabel patients dengan deletedAt terisi
+  let patient: any = await c.env.DB.prepare(
+    'SELECT id, rm, name, address, deletedAt FROM patients WHERE id = ? AND clinicId = ?'
+  ).bind(id, clinicId).first()
+
+  const nowIso = new Date().toISOString()
+
+  if (patient) {
+    // Kembalikan status aktif (set deletedAt = NULL)
+    await c.env.DB.prepare(
+      'UPDATE patients SET deletedAt = NULL WHERE id = ? AND clinicId = ?'
+    ).bind(id, clinicId).run()
+  } else {
+    // 2. Jika pasien ternyata hard-deleted di masa lalu, cari snapshot di error_logs
+    const logRow: any = await c.env.DB.prepare(
+      `SELECT metadata FROM error_logs 
+       WHERE clinicId = ? AND metadata LIKE ? 
+       ORDER BY createdAt DESC LIMIT 1`
+    ).bind(clinicId, `%"patientId":"${id}"%`).first()
+
+    if (!logRow || !logRow.metadata) {
+      return c.json({ error: 'Data cadangan pasien tidak ditemukan di riwayat log.' }, 404)
+    }
+
+    let parsedMeta: any = {}
+    try {
+      parsedMeta = JSON.parse(logRow.metadata)
+    } catch (e) {}
+
+    const snap = parsedMeta.snapshot || parsedMeta
+    if (!snap || (!snap.name && !parsedMeta.name)) {
+      return c.json({ error: 'Data cadangan pasien tidak lengkap untuk dipulihkan.' }, 400)
+    }
+
+    patient = {
+      id: snap.id || id,
+      name: snap.name || parsedMeta.name,
+      rm: snap.rm || parsedMeta.rm,
+      address: snap.address || parsedMeta.address
+    }
+
+    // Insert kembali pasien dari snapshot
+    await c.env.DB.prepare(
+      `INSERT INTO patients (id, clinicId, rm, name, namaSuami, gender, category, address, dob, ageYears, ageMonths, ageDisplay, poli, allergies, keluhan, createdAt, updatedAt, deletedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+    ).bind(
+      patient.id,
+      clinicId,
+      patient.rm || '-',
+      patient.name,
+      snap.namaSuami || null,
+      snap.gender || null,
+      snap.category || 'Umum',
+      snap.address || null,
+      snap.dob || null,
+      snap.ageYears || null,
+      snap.ageMonths || null,
+      snap.ageDisplay || null,
+      snap.poli || 'Pendaftaran',
+      snap.allergies || null,
+      snap.keluhan || null,
+      snap.createdAt || nowIso,
+      nowIso
+    ).run()
+  }
+
+  // Catat log pemulihan
+  try {
+    const auditId = crypto.randomUUID()
+    const metadataStr = JSON.stringify({
+      action: 'RESTORE_PATIENT',
+      patientId: id,
+      rm: patient.rm,
+      name: patient.name,
+      restoredAt: nowIso
+    })
+    await c.env.DB.prepare(
+      `INSERT INTO error_logs (id, clinicId, userId, userEmail, errorMessage, metadata, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      auditId,
+      clinicId,
+      user.uid || null,
+      user.email || 'operator',
+      `[AUDIT] Pasien Dipulihkan: ${patient.name} (${patient.rm})`,
+      metadataStr,
+      nowIso
+    ).run()
+  } catch (auditErr) {
+    console.error('Audit restore log error:', auditErr)
+  }
+
+  // Tambah kembali counter pasien di clinic_settings
+  try {
+    await c.env.DB.prepare('UPDATE clinic_settings SET totalPatients = COALESCE(totalPatients, 0) + 1 WHERE clinicId = ?').bind(clinicId).run()
+  } catch (e) {}
+
+  invalidateEdgeCache(clinicId)
+  return c.json({ success: true, message: `Pasien ${patient.name} (${patient.rm}) berhasil dipulihkan.`, patient })
 })
 
 // --- MEDICINES ---
