@@ -431,6 +431,58 @@ admin.get('/d1-metrics', async (c) => {
     }
 })
 
+// --- PATIENT MUTATION AUDIT LOGS (Super Hemat Kuota: HANYA 20 Baris) ---
+admin.get('/patient-mutation-logs', async (c) => {
+    const page = Math.max(Number(c.req.query('page') || 1), 1)
+    const limit = Math.max(Number(c.req.query('limit') || 20), 1)
+    const offset = (page - 1) * limit
+    const clinicId = c.req.query('clinicId') || null
+
+    let query = `
+      SELECT id, clinicId, userId, userEmail, errorMessage, metadata, createdAt 
+      FROM error_logs 
+      WHERE errorMessage LIKE '[AUDIT]%'
+    `
+    let countQuery = `
+      SELECT COUNT(*) as total 
+      FROM error_logs 
+      WHERE errorMessage LIKE '[AUDIT]%'
+    `
+    const params: any[] = []
+
+    if (clinicId) {
+      query += ' AND clinicId = ?'
+      countQuery += ' AND clinicId = ?'
+      params.push(clinicId)
+    }
+
+    query += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?'
+
+    const totalRes: any = await c.env.DB.prepare(countQuery).bind(...params).first()
+    const { results } = await c.env.DB.prepare(query).bind(...params, limit, offset).all()
+
+    const parsedLogs = (results || []).map((row: any) => {
+      let meta: any = null
+      try {
+        meta = row.metadata ? JSON.parse(row.metadata) : null
+      } catch (e) {}
+      return {
+        ...row,
+        parsedMetadata: meta
+      }
+    })
+
+    return c.json({
+      data: parsedLogs,
+      pagination: {
+        total: totalRes?.total || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((totalRes?.total || 0) / limit)
+      }
+    })
+})
+
 // --- RM INTEGRITY AUDIT SCANNER ---
 admin.get('/rm-audit', async (c) => {
     const clinicId = c.req.query('clinicId') || 'e516fd31-eec0-4a1c-bf58-7575e5449d56'

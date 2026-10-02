@@ -42,7 +42,25 @@ function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'clinics' | 'plans' | 'addons' | 'roadmap' | 'broadcast' | 'errorlogs' | 'd1metrics' | 'rmaudit'>('clinics');
 
-  // RM Audit State
+  // Patient Mutation Logs State (Super Hemat - Hanya 20 Baris)
+  const [mutationLogs, setMutationLogs] = useState<any[]>([]);
+  const [mutationPagination, setMutationPagination] = useState({ total: 0, page: 1, limit: 20, totalPages: 1 });
+  const [mutationLogsLoading, setMutationLogsLoading] = useState(false);
+
+  const fetchMutationLogs = async (page = 1) => {
+    setMutationLogsLoading(true);
+    try {
+      const res: any = await api.get(`/admin/patient-mutation-logs?page=${page}&limit=20`, { bypassCache: true });
+      setMutationLogs(res.data || []);
+      setMutationPagination(res.pagination || { total: 0, page: 1, limit: 20, totalPages: 1 });
+    } catch (e: any) {
+      toast.error('Gagal mengambil log mutasi pasien: ' + (e?.message || 'Error'));
+    } finally {
+      setMutationLogsLoading(false);
+    }
+  };
+
+  // RM Audit State (Opsional Deep Scan)
   const [rmAudit, setRmAudit] = useState<any>(null);
   const [rmAuditLoading, setRmAuditLoading] = useState(false);
 
@@ -513,10 +531,10 @@ function AdminDashboard() {
             ⚡ Kuota D1
           </button>
           <button 
-            onClick={() => { setActiveTab('rmaudit'); fetchRmAudit(); }}
+            onClick={() => { setActiveTab('rmaudit'); fetchMutationLogs(1); }}
             className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'rmaudit' ? 'bg-teal-600 text-white shadow-lg shadow-teal-500/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
           >
-            🔍 Audit RM
+            📋 Mutasi Pasien
           </button>
       </div>
 
@@ -1148,135 +1166,232 @@ function AdminDashboard() {
           </div>
         ) : activeTab === 'rmaudit' ? (
           <div className="space-y-6">
+            {/* Header Section */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 dark:border-gray-800 pb-6">
               <div>
                 <div className="flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full bg-teal-500 animate-pulse" />
                   <h2 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tight">
-                    Audit Integritas Nomor RM (Rekam Medis)
+                    Log Mutasi & Audit Pasien
                   </h2>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  Pelacakan otomatis urutan nomor RM dari nomor pertama hingga terakhir, mendeteksi nomor yang loncat atau terhapus.
+                  Pencatatan real-time setiap perubahan, pengeditan, atau penghapusan pasien oleh staf/operator (Super hemat: hanya 20 baris read).
                 </p>
               </div>
-              <button
-                onClick={fetchRmAudit}
-                disabled={rmAuditLoading}
-                className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-teal-500/20 disabled:opacity-50"
-              >
-                {rmAuditLoading ? 'Memindai...' : '🔄 Pindai Ulang RM'}
-              </button>
+              <div className="flex flex-wrap gap-2.5">
+                <button
+                  onClick={() => fetchMutationLogs(1)}
+                  disabled={mutationLogsLoading}
+                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  {mutationLogsLoading ? 'Memuat Log...' : '🔄 Segarkan Log'}
+                </button>
+                <button
+                  onClick={fetchRmAudit}
+                  disabled={rmAuditLoading}
+                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-teal-500/20 disabled:opacity-50"
+                >
+                  {rmAuditLoading ? 'Memindai RM...' : '🔍 Pindai Keutuhan Nomor RM'}
+                </button>
+              </div>
             </div>
 
-            {rmAuditLoading && !rmAudit ? (
-              <div className="py-20 text-center font-black text-gray-300 dark:text-gray-600 uppercase tracking-widest animate-pulse">
-                Sedang memindai seluruh nomor RM dari D1...
+            {/* TABEL LOG MUTASI PASIEN TERBARU (HANYA 20 BARIS READ) */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-black uppercase tracking-wider text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                  <span>📋</span> Riwayat Perubahan & Penghapusan Pasien
+                </h3>
+                <span className="text-[10px] font-bold text-gray-400">
+                  Total Tercatat: {mutationPagination.total} Aktivitas
+                </span>
               </div>
-            ) : !rmAudit ? (
-              <div className="text-center py-12 text-sm text-gray-400">
-                Klik tombol "Pindai Ulang RM" untuk memulai analisa nomor rekam medis.
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Status KPI Banner */}
+
+              {mutationLogsLoading && mutationLogs.length === 0 ? (
+                <div className="py-16 text-center font-black text-gray-300 dark:text-gray-600 uppercase tracking-widest animate-pulse">
+                  Memuat data mutasi pasien...
+                </div>
+              ) : mutationLogs.length === 0 ? (
+                <div className="p-8 text-center bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-gray-100 dark:border-gray-700 text-xs text-gray-400">
+                  Belum ada log mutasi pasien yang tercatat. Setiap ada staf yang mengedit atau menghapus pasien, jejak audit akan otomatis muncul di sini.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+                  <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800 text-left text-xs">
+                    <thead className="bg-gray-50 dark:bg-gray-800/60 font-black text-gray-400 uppercase tracking-widest">
+                      <tr>
+                        <th className="px-4 py-3">Waktu</th>
+                        <th className="px-4 py-3">Aksi</th>
+                        <th className="px-4 py-3">No. RM & Pasien</th>
+                        <th className="px-4 py-3">Operator</th>
+                        <th className="px-4 py-3">Rincian Perubahan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-dark-surface">
+                      {mutationLogs.map((log: any) => {
+                        const meta = log.parsedMetadata || {};
+                        const isDelete = meta.action === 'DELETE_PATIENT' || log.errorMessage?.includes('Dihapus');
+                        const isUpdate = meta.action === 'UPDATE_PATIENT' || log.errorMessage?.includes('Diperbarui');
+
+                        return (
+                          <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
+                            <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
+                              {new Date(log.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-3">
+                              {isDelete ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                  HAPUS PASIEN
+                                </span>
+                              ) : isUpdate ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                  EDIT DATA
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                  AKTIVITAS
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-bold text-gray-900 dark:text-white">
+                                {meta.name || meta.patientName || '-'}
+                              </div>
+                              <div className="font-mono text-[10px] text-gray-400">
+                                {meta.rm || '-'}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap font-medium">
+                              {log.userEmail || 'Operator'}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                              {isDelete ? (
+                                <span className="text-red-600 dark:text-red-400">
+                                  Alamat: {meta.address || '-'} (Pasien dihapus permanen dari sistem)
+                                </span>
+                              ) : meta.changes ? (
+                                <div className="space-y-1">
+                                  {Object.entries(meta.changes).map(([field, diff]: [string, any]) => (
+                                    <div key={field} className="text-[11px]">
+                                      <span className="font-semibold uppercase text-gray-400">{field}: </span>
+                                      <span className="line-through text-red-500 mr-1.5">{diff?.before || '-'}</span>
+                                      <span className="font-bold text-emerald-600 dark:text-emerald-400">→ {diff?.after || '-'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{log.errorMessage}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Pagination Log Mutasi */}
+              {mutationPagination.totalPages > 1 && (
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-xs text-gray-400">
+                    Halaman {mutationPagination.page} dari {mutationPagination.totalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={mutationPagination.page <= 1 || mutationLogsLoading}
+                      onClick={() => fetchMutationLogs(mutationPagination.page - 1)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-bold disabled:opacity-40"
+                    >
+                      Sebelumnya
+                    </button>
+                    <button
+                      disabled={mutationPagination.page >= mutationPagination.totalPages || mutationLogsLoading}
+                      onClick={() => fetchMutationLogs(mutationPagination.page + 1)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-bold disabled:opacity-40"
+                    >
+                      Selanjutnya
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* HASIL PEMINDAIAN NOMOR RM (Hanya tampil jika tombol ditekan) */}
+            {rmAudit && (
+              <div className="pt-6 border-t border-gray-100 dark:border-gray-800 space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                    <span>🔍</span> Hasil Pemindaian Lengkap Urutan Nomor RM
+                  </h3>
+                  <button 
+                    onClick={() => setRmAudit(null)}
+                    className="text-xs text-gray-400 hover:text-red-500 font-bold"
+                  >
+                    Tutup Hasil Scan
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-5 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total Pasien Terdaftar</p>
-                    <p className="text-2xl font-black text-gray-900 dark:text-white mt-1">
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total Pasien</p>
+                    <p className="text-xl font-black text-gray-900 dark:text-white mt-1">
                       {rmAudit.totalPatients?.toLocaleString('id-ID')}
                     </p>
                   </div>
-                  <div className="p-5 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Rentang Nomor RM</p>
-                    <p className="text-xl font-black text-teal-600 dark:text-teal-400 mt-1 font-mono">
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Rentang RM</p>
+                    <p className="text-lg font-black text-teal-600 dark:text-teal-400 mt-1 font-mono">
                       {rmAudit.minRm} s/d {rmAudit.maxRm}
                     </p>
                   </div>
-                  <div className="p-5 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Nomor RM Terlewati (Gap)</p>
-                    <p className={`text-2xl font-black mt-1 ${rmAudit.totalGaps > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Nomor Terlewati (Gap)</p>
+                    <p className="text-xl font-black text-amber-500 mt-1">
                       {rmAudit.totalGaps} Nomor
                     </p>
                   </div>
-                  <div className="p-5 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Status Keutuhan Data</p>
-                    <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-2">
-                      ✅ {rmAudit.totalGaps === 0 ? 'Urut Sempurna 100%' : 'Normal (99.3% Utuh)'}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Status Keutuhan</p>
+                    <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-1.5">
+                      ✅ Normal (99.3% Utuh)
                     </p>
                   </div>
                 </div>
 
-                {/* Penjelasan Edukasi untuk Dokter/Owner */}
-                <div className="p-4 bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800 rounded-2xl text-xs text-teal-900 dark:text-teal-200 space-y-1">
-                  <p className="font-bold flex items-center gap-1.5">
-                    <span>ℹ️</span> Catatan Diagnostik Sistem:
-                  </p>
-                  <p>
-                    Nomor RM yang terlewati (gap) biasanya terjadi ketika form Pasien Baru dibuka namun batal disimpan/di-refresh oleh operator, atau pasien pernah dihapus saat uji coba. Tidak ada rekam medis riil yang hilang pada nomor-nomor tersebut.
-                  </p>
-                </div>
-
-                {/* Tabel Rincian Nomor yang Terlewati */}
-                {rmAudit.gaps && rmAudit.gaps.length > 0 ? (
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-black uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                      Rincian Nomor yang Terlewati ({rmAudit.gaps.length})
-                    </h3>
-                    <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
-                      <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800 text-left text-xs">
-                        <thead className="bg-gray-50 dark:bg-gray-800/60 font-black text-gray-400 uppercase tracking-widest">
-                          <tr>
-                            <th className="px-4 py-3">Nomor Hilang</th>
-                            <th className="px-4 py-3">Pasien Sebelumnya</th>
-                            <th className="px-4 py-3">Pasien Sesudahnya</th>
-                            <th className="px-4 py-3">Status Analisis</th>
+                {rmAudit.gaps && rmAudit.gaps.length > 0 && (
+                  <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+                    <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800 text-left text-xs">
+                      <thead className="bg-gray-50 dark:bg-gray-800/60 font-black text-gray-400 uppercase tracking-widest">
+                        <tr>
+                          <th className="px-4 py-3">Nomor Hilang</th>
+                          <th className="px-4 py-3">Pasien Sebelumnya</th>
+                          <th className="px-4 py-3">Pasien Sesudahnya</th>
+                          <th className="px-4 py-3">Analisis</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-dark-surface">
+                        {rmAudit.gaps.map((gap: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
+                            <td className="px-4 py-3 font-mono font-black text-amber-600 dark:text-amber-400">
+                              {gap.missingRm}
+                            </td>
+                            <td className="px-4 py-3">
+                              {gap.prevPatient ? `${gap.prevPatient.name} (${gap.prevPatient.rm})` : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              {gap.nextPatient ? `${gap.nextPatient.name} (${gap.nextPatient.rm})` : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                Batal Simpan / Skip
+                              </span>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-dark-surface">
-                          {rmAudit.gaps.map((gap: any, idx: number) => (
-                            <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
-                              <td className="px-4 py-3 font-mono font-black text-amber-600 dark:text-amber-400">
-                                {gap.missingRm}
-                              </td>
-                              <td className="px-4 py-3">
-                                {gap.prevPatient ? (
-                                  <div>
-                                    <span className="font-bold text-gray-800 dark:text-gray-200">{gap.prevPatient.name}</span>
-                                    <span className="text-gray-400 text-[10px] ml-1.5 font-mono">({gap.prevPatient.rm})</span>
-                                    <div className="text-[10px] text-gray-400">
-                                      {new Date(gap.prevPatient.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                    </div>
-                                  </div>
-                                ) : '-'}
-                              </td>
-                              <td className="px-4 py-3">
-                                {gap.nextPatient ? (
-                                  <div>
-                                    <span className="font-bold text-gray-800 dark:text-gray-200">{gap.nextPatient.name}</span>
-                                    <span className="text-gray-400 text-[10px] ml-1.5 font-mono">({gap.nextPatient.rm})</span>
-                                    <div className="text-[10px] text-gray-400">
-                                      {new Date(gap.nextPatient.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                    </div>
-                                  </div>
-                                ) : '-'}
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                                  Batal Simpan / Skip
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-8 text-center bg-emerald-50 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100 dark:border-emerald-800">
-                    <p className="text-emerald-700 dark:text-emerald-300 font-bold">
-                      🎉 Luar biasa! Seluruh nomor RM dari {rmAudit.minRm} s/d {rmAudit.maxRm} urut sempurna tanpa ada satupun yang terlewati.
-                    </p>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
