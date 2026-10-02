@@ -476,8 +476,8 @@ function PatientList() {
           }
         }}
         onConfirm={confirmDelete}
-        title="Konfirmasi Hapus Pasien"
-        message={`Apakah Anda yakin ingin menghapus data pasien "${deleteModal.patientName}"? Tindakan ini akan menghapus riwayat pendaftaran terkait dan akan dicatat secara permanen di audit log klinik.`}
+        title="Hapus Data Pasien?"
+        message={`Yakin ingin menghapus pasien "${deleteModal.patientName}"? Riwayat pendaftaran dan pemeriksaan pasien ini juga akan terhapus. Tindakan ini tidak dapat dibatalkan.`}
         confirmLabel="Ya, Hapus Pasien"
         cancelLabel="Batal"
         variant="danger"

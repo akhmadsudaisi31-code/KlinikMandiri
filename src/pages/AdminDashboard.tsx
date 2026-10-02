@@ -1172,11 +1172,11 @@ function AdminDashboard() {
                 <div className="flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full bg-teal-500 animate-pulse" />
                   <h2 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tight">
-                    Log Mutasi & Audit Pasien
+                    Riwayat Perubahan Data Pasien
                   </h2>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  Pencatatan real-time setiap perubahan, pengeditan, atau penghapusan pasien oleh staf/operator (Super hemat: hanya 20 baris read).
+                  Catatan aktivitas pembaruan dan penghapusan data pasien oleh staf klinik.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2.5">
@@ -1185,36 +1185,36 @@ function AdminDashboard() {
                   disabled={mutationLogsLoading}
                   className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
                 >
-                  {mutationLogsLoading ? 'Memuat Log...' : '🔄 Segarkan Log'}
+                  {mutationLogsLoading ? 'Memuat Data...' : '🔄 Segarkan'}
                 </button>
                 <button
                   onClick={fetchRmAudit}
                   disabled={rmAuditLoading}
                   className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-teal-500/20 disabled:opacity-50"
                 >
-                  {rmAuditLoading ? 'Memindai RM...' : '🔍 Pindai Keutuhan Nomor RM'}
+                  {rmAuditLoading ? 'Memeriksa...' : '🔍 Cek Urutan Nomor RM'}
                 </button>
               </div>
             </div>
 
-            {/* TABEL LOG MUTASI PASIEN TERBARU (HANYA 20 BARIS READ) */}
+            {/* TABEL LOG MUTASI PASIEN TERBARU */}
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <h3 className="text-sm font-black uppercase tracking-wider text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                  <span>📋</span> Riwayat Perubahan & Penghapusan Pasien
+                  <span>📋</span> Aktivitas Terbaru
                 </h3>
                 <span className="text-[10px] font-bold text-gray-400">
-                  Total Tercatat: {mutationPagination.total} Aktivitas
+                  Total: {mutationPagination.total} Aktivitas
                 </span>
               </div>
 
               {mutationLogsLoading && mutationLogs.length === 0 ? (
                 <div className="py-16 text-center font-black text-gray-300 dark:text-gray-600 uppercase tracking-widest animate-pulse">
-                  Memuat data mutasi pasien...
+                  Memuat data aktivitas...
                 </div>
               ) : mutationLogs.length === 0 ? (
                 <div className="p-8 text-center bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-gray-100 dark:border-gray-700 text-xs text-gray-400">
-                  Belum ada log mutasi pasien yang tercatat. Setiap ada staf yang mengedit atau menghapus pasien, jejak audit akan otomatis muncul di sini.
+                  Belum ada catatan aktivitas. Setiap kali data pasien diubah atau dihapus, riwayatnya akan otomatis tampil di sini.
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
@@ -1268,7 +1268,7 @@ function AdminDashboard() {
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                               {isDelete ? (
                                 <span className="text-red-600 dark:text-red-400">
-                                  Alamat: {meta.address || '-'} (Pasien dihapus permanen dari sistem)
+                                  Alamat: {meta.address || '-'} (Data pasien telah dihapus dari sistem)
                                 </span>
                               ) : meta.changes ? (
                                 <div className="space-y-1">

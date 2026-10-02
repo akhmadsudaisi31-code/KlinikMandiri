@@ -640,10 +640,10 @@ function PatientForm() {
             await onSubmit(pendingFormData);
           }
         }}
-        title="Konfirmasi Perubahan Data Pasien"
-        message="Apakah Anda yakin data perubahan pasien ini sudah benar? Perubahan ini akan langsung diperbarui di rekam medis dan dicatat dalam audit log sistem klinik."
+        title="Simpan Perubahan Data Pasien?"
+        message="Pastikan data yang diubah sudah sesuai. Data pasien akan langsung diperbarui di seluruh layanan klinik."
         confirmLabel="Ya, Simpan Perubahan"
-        cancelLabel="Cek Kembali"
+        cancelLabel="Periksa Lagi"
         variant="warning"
         isLoading={isLoading}
       />
