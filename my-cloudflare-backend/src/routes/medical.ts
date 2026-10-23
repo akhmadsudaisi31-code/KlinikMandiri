@@ -249,7 +249,7 @@ medical.post('/patients', async (c) => {
     const cleanAddress = (body.address || '').trim().toLowerCase()
     const cleanDob = body.dob || null
 
-    let duplicateQuery = 'SELECT id, rm, name, address, dob, ageDisplay, gender, category, poli FROM patients WHERE clinicId = ? AND LOWER(TRIM(name)) = ?'
+    let duplicateQuery = 'SELECT id, rm, name, address, dob, ageDisplay, gender, category, poli FROM patients WHERE clinicId = ? AND (deletedAt IS NULL OR deletedAt = \'\') AND LOWER(TRIM(name)) = ?'
     const params: any[] = [clinicId, cleanName]
 
     if (cleanAddress && cleanDob) {
