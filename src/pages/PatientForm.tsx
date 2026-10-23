@@ -223,15 +223,19 @@ function PatientForm() {
   const handleForceSave = async () => {
     if (!pendingFormData) return;
     setDuplicateErrorModal(false);
-    await onSubmit(pendingFormData, true);
+    await savePatient(pendingFormData, true);
   };
 
-  const onSubmit = async (data: ExtendedPatientFormData, forceCreate = false) => {
+  const onSubmit: SubmitHandler<ExtendedPatientFormData> = async (data) => {
     if (isEditMode && !showEditConfirmModal) {
       setPendingFormData(data);
       setShowEditConfirmModal(true);
       return;
     }
+    await savePatient(data, false);
+  };
+
+  const savePatient = async (data: ExtendedPatientFormData, forceCreate = false) => {
 
     setIsLoading(true);
     if (!user) {
