@@ -243,14 +243,34 @@ medical.post('/patients', async (c) => {
     }
   }
 
-  // --- CEK UNIK NAMA + DOB (Selalu cek untuk mencegah duplikasi di database) ---
-  if (body.name && body.dob) {
-    const existing: any = await c.env.DB.prepare(
-      'SELECT id FROM patients WHERE clinicId = ? AND name = ? AND dob = ?'
-    ).bind(clinicId, body.name, body.dob).first()
+  // --- CEK DUPLIKASI PASIEN (Nama + Alamat atau Nama + DOB) ---
+  if (!body.force && body.name && (body.address || body.dob)) {
+    const cleanName = body.name.trim().toLowerCase()
+    const cleanAddress = (body.address || '').trim().toLowerCase()
+    const cleanDob = body.dob || null
+
+    let duplicateQuery = 'SELECT id, rm, name, address, dob, ageDisplay, gender, category, poli FROM patients WHERE clinicId = ? AND LOWER(TRIM(name)) = ?'
+    const params: any[] = [clinicId, cleanName]
+
+    if (cleanAddress && cleanDob) {
+      duplicateQuery += ' AND (LOWER(TRIM(address)) = ? OR dob = ?)'
+      params.push(cleanAddress, cleanDob)
+    } else if (cleanAddress) {
+      duplicateQuery += ' AND LOWER(TRIM(address)) = ?'
+      params.push(cleanAddress)
+    } else if (cleanDob) {
+      duplicateQuery += ' AND dob = ?'
+      params.push(cleanDob)
+    }
+
+    const existing: any = await c.env.DB.prepare(duplicateQuery).bind(...params).first()
 
     if (existing) {
-      return c.json({ error: `Pasien dengan nama "${body.name}" dan tanggal lahir yang sama sudah ada dalam data klinik.` }, 400)
+      return c.json({
+        code: 'DUPLICATE_PATIENT',
+        error: `Pasien dengan nama "${existing.name}" dan alamat/tanggal lahir serupa sudah terdaftar (RM: ${existing.rm || '-'}).`,
+        existingPatient: existing
+      }, 409)
     }
   }
 

@@ -137,50 +137,84 @@ function PatientList() {
     }
   };
 
-  const handleAddToPoli = async (patientId: string, patientName: string) => {
-    if (window.confirm(`Tambahkan ${patientName} ke ${examinationUnitLabel}?`)) {
-      try {
-        const queuedAt = new Date().toISOString();
-        await api.put(`/patients/${patientId}`, {
-          poli: "Pemeriksaan",
-          updatedAt: queuedAt
+  // State Modal Antrian Cepat ke Poli (dengan keluhan hari ini)
+  const [queueModal, setQueueModal] = useState<{
+    isOpen: boolean;
+    patientId: string;
+    patientName: string;
+    patientRm: string;
+    currentKeluhan: string;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    patientId: '',
+    patientName: '',
+    patientRm: '',
+    currentKeluhan: '',
+    isLoading: false,
+  });
+
+  const handleOpenQueueModal = (patient: Patient) => {
+    setQueueModal({
+      isOpen: true,
+      patientId: patient.id,
+      patientName: patient.name,
+      patientRm: patient.rm || '-',
+      currentKeluhan: (patient as any).keluhan || '',
+      isLoading: false,
+    });
+  };
+
+  const confirmAddToPoli = async () => {
+    const { patientId, patientName, currentKeluhan } = queueModal;
+    setQueueModal(prev => ({ ...prev, isLoading: true }));
+    try {
+      const queuedAt = new Date().toISOString();
+      await api.put(`/patients/${patientId}`, {
+        poli: "Pemeriksaan",
+        keluhan: currentKeluhan || null,
+        updatedAt: queuedAt
+      });
+      const existingPatient = patients.find((patient) => patient.id === patientId);
+      if (existingPatient) {
+        broadcastPatientQueueUpdate({
+          action: 'enqueue',
+          patientId,
+          patient: {
+            ...existingPatient,
+            poli: 'Pemeriksaan',
+            keluhan: currentKeluhan || null,
+            updatedAt: queuedAt,
+          },
+          source: 'patient-list',
         });
-        const existingPatient = patients.find((patient) => patient.id === patientId);
-        if (existingPatient) {
-          broadcastPatientQueueUpdate({
-            action: 'enqueue',
-            patientId,
-            patient: {
-              ...existingPatient,
-              poli: 'Pemeriksaan',
-              updatedAt: queuedAt,
-            },
-            source: 'patient-list',
-          });
-        } else {
-          broadcastPatientQueueUpdate({ action: 'refresh', patientId, source: 'patient-list' });
-        }
-
-        // Kirim Notifikasi ke Pemeriksa
-        try {
-          await api.post('/notifications', {
-             type: 'NEW_PATIENT',
-             patientId: patientId,
-             patientName: patientName,
-             message: `Pasien: ${patientName} dikirim ke antrian ${examinationQueueLabel}.`,
-             read: false,
-             createdAt: new Date().toISOString(),
-             toRole: 'pemeriksa',
-             clinicId: user?.uid
-          });
-        } catch (error) {
-          console.error("Gagal kirim notif:", error);
-        }
-
-      } catch (error) {
-        console.error("Error updating patient: ", error);
-        toast.error(`Gagal menambahkan pasien ke ${examinationUnitLabel}.`);
+      } else {
+        broadcastPatientQueueUpdate({ action: 'refresh', patientId, source: 'patient-list' });
       }
+
+      // Kirim Notifikasi ke Pemeriksa
+      try {
+        await api.post('/notifications', {
+           type: 'NEW_PATIENT',
+           patientId: patientId,
+           patientName: patientName,
+           message: `Pasien: ${patientName} dikirim ke antrian ${examinationQueueLabel}.`,
+           read: false,
+           createdAt: new Date().toISOString(),
+           toRole: 'pemeriksa',
+           clinicId: user?.uid
+        });
+      } catch (error) {
+        console.error("Gagal kirim notif:", error);
+      }
+
+      toast.success(`${patientName} berhasil dikirim ke antrian ${examinationUnitLabel}!`);
+      setQueueModal({ isOpen: false, patientId: '', patientName: '', patientRm: '', currentKeluhan: '', isLoading: false });
+      fetchPatients();
+    } catch (error) {
+      console.error("Error updating patient: ", error);
+      toast.error(`Gagal menambahkan pasien ke ${examinationUnitLabel}.`);
+      setQueueModal(prev => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -422,7 +456,7 @@ function PatientList() {
                           className="p-2 rounded-full text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-gray-800 transition-all mr-2"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleAddToPoli(patient.id, patient.name);
+                            handleOpenQueueModal(patient);
                           }}
                           title="Tambah ke Poli Pemeriksaan"
                         >
@@ -600,6 +634,80 @@ function PatientList() {
                 className="px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl"
               >
                 Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Antrian Cepat ke Poli dengan Anamnesa / Keluhan Awal */}
+      {queueModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-gray-700 animate-scaleUp">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-xl bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Kirim ke {examinationUnitLabel}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Masukkan pasien ke antrian pemeriksaan dokter.</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 dark:bg-gray-900/60 rounded-xl p-3.5 border border-gray-200 dark:border-gray-700 mb-4 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-500 font-medium">Nama Pasien:</span>
+                <span className="font-bold text-gray-900 dark:text-white">{queueModal.patientName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 font-medium">No. Rekam Medis:</span>
+                <span className="font-mono font-bold text-primary-600 dark:text-primary-400">{queueModal.patientRm}</span>
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5">
+                Keluhan Utama / Tensi Hari Ini (Opsional)
+              </label>
+              <textarea
+                rows={3}
+                value={queueModal.currentKeluhan}
+                onChange={(e) => setQueueModal(prev => ({ ...prev, currentKeluhan: e.target.value }))}
+                placeholder="Contoh: Sakit kepala 2 hari, TD 120/80 mmHg..."
+                className="w-full px-3.5 py-2.5 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all font-medium"
+              />
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                Catatan ini akan langsung terbaca oleh dokter/pemeriksa di poli.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={queueModal.isLoading}
+                onClick={() => setQueueModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={queueModal.isLoading}
+                onClick={confirmAddToPoli}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 rounded-xl shadow-md shadow-primary-200 dark:shadow-none transition-all flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {queueModal.isLoading ? (
+                  <span>Mengirim...</span>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
+                    </svg>
+                    Kirim ke Poli
+                  </>
+                )}
               </button>
             </div>
           </div>

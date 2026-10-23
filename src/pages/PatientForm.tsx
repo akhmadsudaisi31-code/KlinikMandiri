@@ -3,7 +3,7 @@ import { useForm, SubmitHandler, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, DuplicatePatientError } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { PatientFormData, GENDERS, CATEGORIES, POLI_OPTIONS } from '../types';
 import toast from 'react-hot-toast';
@@ -165,8 +165,68 @@ function PatientForm() {
 
   const [showEditConfirmModal, setShowEditConfirmModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<ExtendedPatientFormData | null>(null);
+  const [duplicatePatient, setDuplicatePatient] = useState<any>(null);
+  const [duplicateErrorModal, setDuplicateErrorModal] = useState(false);
+  const [isHandlingExisting, setIsHandlingExisting] = useState(false);
 
-  const onSubmit: SubmitHandler<ExtendedPatientFormData> = async (data) => {
+  const handleUseExistingPatient = async () => {
+    if (!duplicatePatient || !user) return;
+    setIsHandlingExisting(true);
+    try {
+      const now = new Date().toISOString();
+      const currentKeluhan = pendingFormData?.keluhan || duplicatePatient.keluhan || '';
+      
+      // Update data antrian poli dan keluhan hari ini ke pasien yang sudah ada
+      await api.put(`/patients/${duplicatePatient.id}`, {
+        poli: 'Pemeriksaan',
+        keluhan: currentKeluhan,
+        updatedAt: now,
+      });
+
+      broadcastPatientQueueUpdate({
+        action: 'enqueue',
+        patientId: duplicatePatient.id,
+        patient: {
+          ...duplicatePatient,
+          poli: 'Pemeriksaan',
+          keluhan: currentKeluhan,
+          updatedAt: now,
+        },
+        source: 'patient-form-duplicate-resolve',
+      });
+
+      try {
+        await api.post('/notifications', {
+          type: 'NEW_PATIENT',
+          patientId: duplicatePatient.id,
+          patientName: duplicatePatient.name,
+          message: `Pasien: ${duplicatePatient.name} (RM: ${duplicatePatient.rm || '-'}) masuk antrian ${examinationQueueLabel}.`,
+          read: false,
+          createdAt: now,
+          toRole: 'pemeriksa',
+          clinicId: user.uid,
+        });
+      } catch (notifErr) {
+        console.error("Gagal mengirim notif:", notifErr);
+      }
+
+      toast.success(`Pasien ${duplicatePatient.name} berhasil diarahkan ke antrian pemeriksaan.`);
+      setDuplicateErrorModal(false);
+      navigate(`/pemeriksaan/${duplicatePatient.id}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal memperbarui status antrian pasien lama.');
+    } finally {
+      setIsHandlingExisting(false);
+    }
+  };
+
+  const handleForceSave = async () => {
+    if (!pendingFormData) return;
+    setDuplicateErrorModal(false);
+    await onSubmit(pendingFormData, true);
+  };
+
+  const onSubmit = async (data: ExtendedPatientFormData, forceCreate = false) => {
     if (isEditMode && !showEditConfirmModal) {
       setPendingFormData(data);
       setShowEditConfirmModal(true);
@@ -266,6 +326,7 @@ function PatientForm() {
           rm: finalRm,
           ...commonData,
           createdAt: now,
+          force: forceCreate,
         };
         const docRef = await api.post('/patients', patientData);
         
@@ -310,7 +371,13 @@ function PatientForm() {
 
     } catch (error: any) {
       console.error("Error saving:", error);
-      toast.error('Mohon maaf, terjadi kendala saat menyimpan data. Silakan periksa koneksi internet Anda atau coba beberapa saat lagi.');
+      if (error instanceof DuplicatePatientError) {
+        setPendingFormData(data);
+        setDuplicatePatient(error.existingPatient);
+        setDuplicateErrorModal(true);
+        return;
+      }
+      toast.error(error.message || 'Mohon maaf, terjadi kendala saat menyimpan data.');
     } finally {
       setIsLoading(false);
     }
@@ -647,6 +714,99 @@ function PatientForm() {
         variant="warning"
         isLoading={isLoading}
       />
+
+      {/* Modal Rekomendasi Pasien Duplikat / Sudah Terdaftar */}
+      {duplicateErrorModal && duplicatePatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 dark:border-gray-700 animate-scaleUp">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Pasien Serupa Sudah Terdaftar</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Ditemukan data pasien dengan nama & alamat serupa di klinik ini.</p>
+              </div>
+            </div>
+
+            {/* Ringkasan Data Pasien di Database */}
+            <div className="bg-gray-50 dark:bg-gray-900/60 rounded-xl p-4 border border-gray-200 dark:border-gray-700 mb-4 space-y-2 text-sm">
+              <div className="flex justify-between items-center pb-2 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">No. Rekam Medis</span>
+                <span className="font-mono font-bold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 rounded text-xs">
+                  {duplicatePatient.rm || '-'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 text-xs">Nama Pasien:</span>
+                <span className="font-bold text-gray-900 dark:text-white text-right">{duplicatePatient.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 text-xs">Alamat:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300 text-right max-w-[240px] truncate" title={duplicatePatient.address}>{duplicatePatient.address || '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 text-xs">Umur / Tgl Lahir:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300 text-right">{duplicatePatient.ageDisplay || duplicatePatient.dob || '-'}</span>
+              </div>
+              {pendingFormData?.keluhan && (
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <span className="text-xs font-bold text-orange-600 dark:text-orange-400 block mb-1">Keluhan Baru Hari Ini:</span>
+                  <p className="text-xs bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-200 p-2 rounded-lg border border-orange-100 dark:border-orange-900/30 font-medium">
+                    "{pendingFormData.keluhan}"
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
+              Apakah ini pasien yang sama? Anda dapat langsung menggunakan data pasien ini dan meneruskannya ke antrian poli beserta keluhan yang baru diisi.
+            </p>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                disabled={isHandlingExisting}
+                onClick={handleUseExistingPatient}
+                className="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl shadow-lg shadow-primary-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {isHandlingExisting ? (
+                  <span>Meneruskan ke Antrian...</span>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Gunakan Pasien Ini & Masuk Antrian
+                  </>
+                )}
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isHandlingExisting}
+                  onClick={() => setDuplicateErrorModal(false)}
+                  className="py-2.5 px-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-600 text-xs transition-colors"
+                >
+                  Periksa Form Lagi
+                </button>
+                <button
+                  type="button"
+                  disabled={isHandlingExisting}
+                  onClick={handleForceSave}
+                  className="py-2.5 px-3 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 text-xs transition-colors"
+                  title="Gunakan ini jika pasien memang orang yang berbeda"
+                >
+                  Tetap Buat Baru
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
