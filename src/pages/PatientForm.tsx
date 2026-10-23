@@ -166,18 +166,20 @@ function PatientForm() {
   const [showEditConfirmModal, setShowEditConfirmModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<ExtendedPatientFormData | null>(null);
   const [duplicatePatient, setDuplicatePatient] = useState<any>(null);
+  const [duplicatePatients, setDuplicatePatients] = useState<any[]>([]);
   const [duplicateErrorModal, setDuplicateErrorModal] = useState(false);
   const [isHandlingExisting, setIsHandlingExisting] = useState(false);
 
-  const handleUseExistingPatient = async () => {
-    if (!duplicatePatient || !user) return;
+  const handleUseExistingPatient = async (targetPatient?: any) => {
+    const patientToUse = targetPatient || duplicatePatient;
+    if (!patientToUse || !user) return;
     setIsHandlingExisting(true);
     try {
       const now = new Date().toISOString();
-      const currentKeluhan = pendingFormData?.keluhan || duplicatePatient.keluhan || '';
+      const currentKeluhan = pendingFormData?.keluhan || patientToUse.keluhan || '';
       
       // Update data antrian poli dan keluhan hari ini ke pasien yang sudah ada
-      await api.put(`/patients/${duplicatePatient.id}`, {
+      await api.put(`/patients/${patientToUse.id}`, {
         poli: 'Pemeriksaan',
         keluhan: currentKeluhan,
         updatedAt: now,
@@ -185,9 +187,9 @@ function PatientForm() {
 
       broadcastPatientQueueUpdate({
         action: 'enqueue',
-        patientId: duplicatePatient.id,
+        patientId: patientToUse.id,
         patient: {
-          ...duplicatePatient,
+          ...patientToUse,
           poli: 'Pemeriksaan',
           keluhan: currentKeluhan,
           updatedAt: now,
@@ -198,9 +200,9 @@ function PatientForm() {
       try {
         await api.post('/notifications', {
           type: 'NEW_PATIENT',
-          patientId: duplicatePatient.id,
-          patientName: duplicatePatient.name,
-          message: `Pasien: ${duplicatePatient.name} (RM: ${duplicatePatient.rm || '-'}) masuk antrian ${examinationQueueLabel}.`,
+          patientId: patientToUse.id,
+          patientName: patientToUse.name,
+          message: `Pasien: ${patientToUse.name} (RM: ${patientToUse.rm || '-'}) masuk antrian ${examinationQueueLabel}.`,
           read: false,
           createdAt: now,
           toRole: 'pemeriksa',
@@ -210,9 +212,9 @@ function PatientForm() {
         console.error("Gagal mengirim notif:", notifErr);
       }
 
-      toast.success(`Pasien ${duplicatePatient.name} berhasil diarahkan ke antrian pemeriksaan.`);
+      toast.success(`Pasien ${patientToUse.name} (${patientToUse.rm || '-'}) berhasil diarahkan ke antrian pemeriksaan.`);
       setDuplicateErrorModal(false);
-      navigate(`/pemeriksaan/${duplicatePatient.id}`);
+      navigate(`/pemeriksaan/${patientToUse.id}`);
     } catch (err: any) {
       toast.error(err.message || 'Gagal memperbarui status antrian pasien lama.');
     } finally {
@@ -377,7 +379,11 @@ function PatientForm() {
       console.error("Error saving:", error);
       if (error instanceof DuplicatePatientError) {
         setPendingFormData(data);
-        setDuplicatePatient(error.existingPatient);
+        const list = error.existingPatients && error.existingPatients.length > 0 
+          ? error.existingPatients 
+          : (error.existingPatient ? [error.existingPatient] : []);
+        setDuplicatePatients(list);
+        setDuplicatePatient(list[0] || null);
         setDuplicateErrorModal(true);
         return;
       }
@@ -735,30 +741,49 @@ function PatientForm() {
               </div>
             </div>
 
-            {/* Ringkasan Data Pasien di Database */}
-            <div className="bg-gray-50 dark:bg-gray-900/60 rounded-xl p-4 border border-gray-200 dark:border-gray-700 mb-4 space-y-2 text-sm">
-              <div className="flex justify-between items-center pb-2 border-b border-gray-200 dark:border-gray-700">
-                <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">No. Rekam Medis</span>
-                <span className="font-mono font-bold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 rounded text-xs">
-                  {duplicatePatient.rm || '-'}
+            {/* Ringkasan Data Pasien di Database (Dukungan Multiple Matches) */}
+            <div className="mb-4 space-y-2">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-xs font-bold text-gray-500 uppercase">
+                  {duplicatePatients.length > 1 ? `Ditemukan ${duplicatePatients.length} Pasien Serupa:` : 'Data Pasien Terdaftar:'}
                 </span>
+                {duplicatePatients.length > 1 && (
+                  <span className="text-[11px] text-primary-600 dark:text-primary-400 font-medium">Klik untuk memilih</span>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 text-xs">Nama Pasien:</span>
-                <span className="font-bold text-gray-900 dark:text-white text-right">{duplicatePatient.name}</span>
+
+              <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                {duplicatePatients.map((p) => {
+                  const isSelected = duplicatePatient?.id === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => setDuplicatePatient(p)}
+                      className={`p-3 rounded-xl border transition-all cursor-pointer text-xs ${
+                        isSelected
+                          ? 'border-primary-500 bg-primary-50/60 dark:bg-primary-900/30 ring-2 ring-primary-500/30 shadow-sm'
+                          : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-bold text-gray-900 dark:text-white text-sm">{p.name}</span>
+                        <span className="font-mono font-bold text-primary-600 dark:text-primary-400 bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
+                          {p.rm || '-'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-gray-500 dark:text-gray-400 text-[11px]">
+                        <span>Alamat: {p.address || '-'}</span>
+                        <span>{p.ageDisplay || p.dob || '-'}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 text-xs">Alamat:</span>
-                <span className="font-medium text-gray-700 dark:text-gray-300 text-right max-w-[240px] truncate" title={duplicatePatient.address}>{duplicatePatient.address || '-'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 text-xs">Umur / Tgl Lahir:</span>
-                <span className="font-medium text-gray-700 dark:text-gray-300 text-right">{duplicatePatient.ageDisplay || duplicatePatient.dob || '-'}</span>
-              </div>
+
               {pendingFormData?.keluhan && (
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
                   <span className="text-xs font-bold text-orange-600 dark:text-orange-400 block mb-1">Keluhan Baru Hari Ini:</span>
-                  <p className="text-xs bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-200 p-2 rounded-lg border border-orange-100 dark:border-orange-900/30 font-medium">
+                  <p className="text-xs bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-200 p-2.5 rounded-lg border border-orange-100 dark:border-orange-900/30 font-medium">
                     "{pendingFormData.keluhan}"
                   </p>
                 </div>
@@ -766,14 +791,14 @@ function PatientForm() {
             </div>
 
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
-              Apakah ini pasien yang sama? Anda dapat langsung menggunakan data pasien ini dan meneruskannya ke antrian poli beserta keluhan yang baru diisi.
+              Apakah salah satu dari data di atas adalah pasien yang dimaksud? Anda dapat langsung menggunakannya atau membuat pasien baru jika memang berbeda.
             </p>
 
             <div className="space-y-2">
               <button
                 type="button"
-                disabled={isHandlingExisting}
-                onClick={handleUseExistingPatient}
+                disabled={isHandlingExisting || !duplicatePatient}
+                onClick={() => handleUseExistingPatient(duplicatePatient)}
                 className="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl shadow-lg shadow-primary-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 {isHandlingExisting ? (
@@ -783,7 +808,7 @@ function PatientForm() {
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
-                    Gunakan Pasien Ini & Masuk Antrian
+                    Gunakan {duplicatePatient?.rm || 'Pasien Ini'} & Masuk Antrian
                   </>
                 )}
               </button>

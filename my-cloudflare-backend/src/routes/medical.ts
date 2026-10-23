@@ -249,27 +249,26 @@ medical.post('/patients', async (c) => {
     const cleanAddress = (body.address || '').trim().toLowerCase()
     const cleanDob = body.dob || null
 
-    let duplicateQuery = 'SELECT id, rm, name, address, dob, ageDisplay, gender, category, poli FROM patients WHERE clinicId = ? AND (deletedAt IS NULL OR deletedAt = \'\') AND LOWER(TRIM(name)) = ?'
-    const params: any[] = [clinicId, cleanName]
+    const duplicateQuery = `
+      SELECT id, rm, name, address, dob, ageDisplay, gender, category, poli, keluhan, createdAt 
+      FROM patients 
+      WHERE clinicId = ? AND (deletedAt IS NULL OR deletedAt = '') AND LOWER(TRIM(name)) = ?
+      ${cleanAddress && cleanDob 
+        ? 'AND (LOWER(TRIM(address)) = ? OR dob = ?)' 
+        : cleanAddress 
+        ? 'AND LOWER(TRIM(address)) = ?' 
+        : 'AND dob = ?'}
+      ORDER BY createdAt DESC LIMIT 5
+    `
 
-    if (cleanAddress && cleanDob) {
-      duplicateQuery += ' AND (LOWER(TRIM(address)) = ? OR dob = ?)'
-      params.push(cleanAddress, cleanDob)
-    } else if (cleanAddress) {
-      duplicateQuery += ' AND LOWER(TRIM(address)) = ?'
-      params.push(cleanAddress)
-    } else if (cleanDob) {
-      duplicateQuery += ' AND dob = ?'
-      params.push(cleanDob)
-    }
+    const { results: existingPatients } = await c.env.DB.prepare(duplicateQuery).bind(...params).all()
 
-    const existing: any = await c.env.DB.prepare(duplicateQuery).bind(...params).first()
-
-    if (existing) {
+    if (existingPatients && existingPatients.length > 0) {
       return c.json({
         code: 'DUPLICATE_PATIENT',
-        error: `Pasien dengan nama "${existing.name}" dan alamat/tanggal lahir serupa sudah terdaftar (RM: ${existing.rm || '-'}).`,
-        existingPatient: existing
+        error: `Ditemukan ${existingPatients.length} pasien dengan nama "${existingPatients[0].name}" dan alamat/tanggal lahir serupa.`,
+        existingPatients: existingPatients,
+        existingPatient: existingPatients[0] // fallback kompatibilitas
       }, 409)
     }
   }

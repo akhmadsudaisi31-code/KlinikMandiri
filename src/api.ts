@@ -16,10 +16,12 @@ export class DuplicateExaminationError extends Error {
 // Special error class for duplicate patient registration (HTTP 409)
 export class DuplicatePatientError extends Error {
   existingPatient: any;
-  constructor(message: string, existingPatient: any) {
+  existingPatients: any[];
+  constructor(message: string, existingPatient: any, existingPatients: any[] = []) {
     super(message);
     this.name = 'DuplicatePatientError';
     this.existingPatient = existingPatient;
+    this.existingPatients = existingPatients.length > 0 ? existingPatients : (existingPatient ? [existingPatient] : []);
   }
 }
 
@@ -102,7 +104,7 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
 
         // Handle duplicate patient (409) as a special typed error
         if (response.status === 409 && errorBody.code === 'DUPLICATE_PATIENT') {
-          throw new DuplicatePatientError(errorMsg, errorBody.existingPatient || null);
+          throw new DuplicatePatientError(errorMsg, errorBody.existingPatient || null, errorBody.existingPatients || []);
         }
 
         // report error to D1 logger (unless already handled or 401)
