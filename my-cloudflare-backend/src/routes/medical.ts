@@ -258,7 +258,7 @@ medical.post('/patients', async (c) => {
         : cleanAddress 
         ? 'AND LOWER(TRIM(address)) = ?' 
         : 'AND dob = ?'}
-      ORDER BY createdAt DESC LIMIT 5
+      ORDER BY createdAt DESC LIMIT 20
     `
 
     const { results: existingPatients } = await c.env.DB.prepare(duplicateQuery).bind(...params).all()

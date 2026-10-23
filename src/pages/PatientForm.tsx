@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { getExaminationUnitLabel, getExaminationQueueLabel, isDentalClinicType } from '../utils/clinic';
 import { broadcastPatientQueueUpdate } from '../utils/patientQueueSync';
 import { ConfirmationModal } from '../components/ConfirmationModal';
+import { formatToWIB } from '../utils/date';
 
 const schema = z.object({
   manualRm: z.string().optional(),
@@ -741,44 +742,84 @@ function PatientForm() {
               </div>
             </div>
 
-            {/* Ringkasan Data Pasien di Database (Dukungan Multiple Matches) */}
+            {/* Ringkasan Data Pasien di Database (List Pasien yang Bisa Diklik Membuka Detail) */}
             <div className="mb-4 space-y-2">
               <div className="flex justify-between items-center px-1">
                 <span className="text-xs font-bold text-gray-500 uppercase">
                   {duplicatePatients.length > 1 ? `Ditemukan ${duplicatePatients.length} Pasien Serupa:` : 'Data Pasien Terdaftar:'}
                 </span>
-                {duplicatePatients.length > 1 && (
-                  <span className="text-[11px] text-primary-600 dark:text-primary-400 font-medium">Klik untuk memilih</span>
-                )}
+                <span className="text-[11px] text-primary-600 dark:text-primary-400 font-medium">Klik untuk lihat detail</span>
               </div>
 
-              <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+              {/* List Pasien */}
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
                 {duplicatePatients.map((p) => {
                   const isSelected = duplicatePatient?.id === p.id;
                   return (
                     <div
                       key={p.id}
                       onClick={() => setDuplicatePatient(p)}
-                      className={`p-3 rounded-xl border transition-all cursor-pointer text-xs ${
+                      className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between text-xs ${
                         isSelected
-                          ? 'border-primary-500 bg-primary-50/60 dark:bg-primary-900/30 ring-2 ring-primary-500/30 shadow-sm'
+                          ? 'border-primary-500 bg-primary-50/70 dark:bg-primary-900/30 ring-2 ring-primary-500/30 shadow-sm'
                           : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 hover:bg-gray-100 dark:hover:bg-gray-800'
                       }`}
                     >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-bold text-gray-900 dark:text-white text-sm">{p.name}</span>
-                        <span className="font-mono font-bold text-primary-600 dark:text-primary-400 bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center gap-2.5">
+                        <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-primary-600 dark:bg-primary-400 ring-2 ring-primary-200 dark:ring-primary-900' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                        <div>
+                          <div className="font-bold text-gray-900 dark:text-white text-xs">{p.name}</div>
+                          <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-[200px]" title={p.address}>
+                            {p.address || '-'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-[11px] text-primary-600 dark:text-primary-400 bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
                           {p.rm || '-'}
                         </span>
-                      </div>
-                      <div className="flex justify-between text-gray-500 dark:text-gray-400 text-[11px]">
-                        <span>Alamat: {p.address || '-'}</span>
-                        <span>{p.ageDisplay || p.dob || '-'}</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-gray-400 transition-transform ${isSelected ? 'rotate-90 text-primary-500' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Panel Detail Pasien yang Sedang Dipilih */}
+              {duplicatePatient && (
+                <div className="bg-primary-50/40 dark:bg-primary-900/10 rounded-xl p-3 border border-primary-200 dark:border-primary-900/30 text-xs space-y-1.5 animate-fadeIn">
+                  <div className="flex justify-between items-center pb-1.5 border-b border-primary-200/60 dark:border-primary-900/30">
+                    <span className="font-bold text-primary-900 dark:text-primary-200">Detail Pasien Terpilih</span>
+                    <span className="font-mono font-bold text-primary-600 dark:text-primary-400 text-xs">
+                      {duplicatePatient.rm || '-'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-gray-500 block">Nama Lengkap:</span>
+                      <span className="font-bold text-gray-800 dark:text-gray-200">{duplicatePatient.name}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Umur / Tanggal Lahir:</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{duplicatePatient.ageDisplay || duplicatePatient.dob || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Jenis Kelamin / Kategori:</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{duplicatePatient.gender || '-'} ({duplicatePatient.category || '-'})</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Tanggal Registrasi:</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{formatToWIB(duplicatePatient.createdAt)}</span>
+                    </div>
+                  </div>
+                  <div className="pt-1 text-[11px]">
+                    <span className="text-gray-500 block">Alamat Terdaftar:</span>
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{duplicatePatient.address || '-'}</span>
+                  </div>
+                </div>
+              )}
 
               {pendingFormData?.keluhan && (
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
