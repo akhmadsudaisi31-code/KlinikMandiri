@@ -248,16 +248,25 @@ medical.post('/patients', async (c) => {
     const cleanName = body.name.trim().toLowerCase()
     const cleanAddress = (body.address || '').trim().toLowerCase()
     const cleanDob = body.dob || null
+    const params: any[] = [clinicId, cleanName]
+    let conditionClause = ''
+
+    if (cleanAddress && cleanDob) {
+      conditionClause = 'AND (LOWER(TRIM(address)) = ? OR dob = ?)'
+      params.push(cleanAddress, cleanDob)
+    } else if (cleanAddress) {
+      conditionClause = 'AND LOWER(TRIM(address)) = ?'
+      params.push(cleanAddress)
+    } else if (cleanDob) {
+      conditionClause = 'AND dob = ?'
+      params.push(cleanDob)
+    }
 
     const duplicateQuery = `
       SELECT id, rm, name, address, dob, ageDisplay, gender, category, poli, keluhan, createdAt 
       FROM patients 
       WHERE clinicId = ? AND (deletedAt IS NULL OR deletedAt = '') AND LOWER(TRIM(name)) = ?
-      ${cleanAddress && cleanDob 
-        ? 'AND (LOWER(TRIM(address)) = ? OR dob = ?)' 
-        : cleanAddress 
-        ? 'AND LOWER(TRIM(address)) = ?' 
-        : 'AND dob = ?'}
+      ${conditionClause}
       ORDER BY createdAt DESC LIMIT 20
     `
 
